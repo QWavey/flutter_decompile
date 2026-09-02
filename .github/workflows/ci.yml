@@ -1,0 +1,83 @@
+name: CI
+
+# This workflow never touches the network beyond PyPI. It does not clone or
+# build Blutter, does not download an APK, and does not run a decompile: those
+# need a C++ toolchain, several minutes of build time and a real app, none of
+# which belongs in a per-push check. What it proves is that the package
+# installs, lints, type-checks, and that the parser/inference/emitter layers
+# still behave -- which is all tested against fixtures checked into tests/.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned. The dev extra in pyproject keeps loose bounds so a local
+  # `pip install -e .[dev]` gets something current, but CI pins exact versions
+  # so that a ruff or mypy release cannot turn the build red overnight without
+  # anyone choosing to bump it. Bump these deliberately, in their own commit.
+  RUFF_VERSION: "0.16.5"
+  MYPY_VERSION: "2.3.1"
+
+jobs:
+  build:
+    name: ${{ matrix.os }} py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One broken platform should not hide the state of the other eight.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    # bash on every step, including the Windows runners, so there is one
+    # syntax to read instead of three.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install "ruff==${RUFF_VERSION}" "mypy==${MYPY_VERSION}"
+
+      - name: Lint (ruff)
+        run: ruff check --output-format=github .
+
+      - name: Type-check (mypy)
+        # No paths: the set of files to check lives in [tool.mypy] in
+        # pyproject.toml so that a local run checks exactly what CI checks.
+        run: mypy
+
+      - name: Tests (pytest)
+        run: pytest
+
+      - name: Emitter self-test
+        # Builds a ProgramIR by hand from facts copied out of real Blutter
+        # output and runs inference + emission + report over it. No Blutter,
+        # no APK, no network.
+        run: python selftest_emit.py
+
+      - name: Capability statement
+        # The tool's central claim -- what survives an AOT snapshot and what is
+        # provably gone. If this ever fails to print, something is very wrong
+        # with the package layout. `--check` is deliberately not run here: it
+        # probes the host for git/cmake/a C++ compiler/Blutter, which is a
+        # statement about the runner, not about this commit.
+        run: python main.py --capability

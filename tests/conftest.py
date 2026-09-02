@@ -129,6 +129,18 @@ def write_asm(root: str, rel: str, text: str) -> str:
     return path
 
 
+@pytest.fixture(autouse=True)
+def _isolated_cwd(tmp_path, monkeypatch):
+    """Run every test from a scratch directory.
+
+    cli.main() defaults its output to ./<name>_reconstructed, so a test that
+    forgets -o would otherwise litter the checkout it is testing.
+    """
+    scratch = tmp_path / "cwd"
+    scratch.mkdir()
+    monkeypatch.chdir(str(scratch))
+
+
 @pytest.fixture
 def asm_file(tmp_path):
     """Factory: asm_file("kdf.dart", TEXT) -> path to a single asm file."""

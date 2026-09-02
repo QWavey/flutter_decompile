@@ -68,3 +68,169 @@ flutter-decompile = "flutter_decompile.frontend:main"
 
 [tool.setuptools]
 packages = ["flutter_decompile"]
+
+
+# --------------------------------------------------------------------------- #
+# Lint, type-check and test configuration
+#
+# The gate is set to what this code passes TODAY, not to an aspirational
+# maximum. A permanently red CI teaches everyone to ignore CI. Every ignore
+# below names what it is hiding and is meant to be deleted once the underlying
+# code is fixed, not to live forever.
+#
+# Deliberately NOT adopted:
+#   ruff format / black -- the source is hand-wrapped around long disassembly
+#     regexes and %-format evidence strings; reflowing it would be a 7k-line
+#     diff that buys nothing.
+#   ruff "UP" (pyupgrade) -- 733 hits. The code is written for Python 3.10 with
+#     typing.Dict/List and %-formatting throughout; that is a style choice, and
+#     a mechanical rewrite would touch every file for no behaviour change.
+#   ruff "PTH" (pathlib) -- 165 hits. The tool is os.path-based on purpose.
+#   ruff "T20" (no print) -- 86 hits. It is a CLI; print IS the output.
+#   ruff "D" (docstrings) -- 190 hits, mostly "missing docstring in public
+#     function" on small private helpers.
+# --------------------------------------------------------------------------- #
+
+[tool.ruff]
+# 120, not 88: the parser's regexes mirror Blutter disassembly lines and read
+# worse broken up. Only one line in the tree needed rewrapping to meet it.
+line-length = 120
+target-version = "py310"          # matches requires-python; no 3.11+ suggestions
+extend-exclude = ["decompiled", "blutter_out"]
+
+[tool.ruff.lint]
+# Listed explicitly rather than relying on ruff's default set, so that a new
+# ruff release cannot turn CI red on its own. Every family here is at zero
+# violations in the current tree (after removing 12 unused imports and
+# rewrapping one 121-column regex), so a hit means someone added something.
+select = [
+  "F",     # pyflakes -- unused and undefined names, the real mistakes
+  "E",     # pycodestyle errors
+  "W",     # pycodestyle warnings
+  "B",     # bugbear -- likely bugs (mutable defaults, silent loop bugs)
+  "A",     # shadowing a builtin
+  "C4",    # comprehension rewrites
+  "RET",   # return-statement hygiene
+  "TID",   # tidy imports
+  "PIE",   # small correctness lints
+  "ICN",   # import naming conventions
+  "PYI",   # stub-file correctness
+  "SLOT",  # __slots__ correctness
+  "INT",   # gettext misuse
+  "LOG",   # logging call correctness
+  "G",     # logging format strings
+  "T10",   # a forgotten breakpoint()/pdb call
+  "EXE",   # shebang vs executable bit
+  "YTT",   # sys.version comparisons that break at 3.10+
+  "FLY",   # static string joins
+]
+
+ignore = [
+  # `l` is this codebase's name for "the disassembly line being scanned", used
+  # in ~10 tight loops in parse_asm/ir/report/cli. Renaming it is a code change
+  # in files this config has no business rewriting; the meaning is never
+  # ambiguous in context.
+  "E741",
+  # 3 sites in blutter_driver/ir re-raise without `from err`. Worth fixing --
+  # it costs a chained traceback when a Blutter build fails -- but it changes
+  # what users see on error, so it belongs in a change of its own.
+  "B904",
+  # 3 loop variables in parse_asm are unpacked from dict keys and only the key
+  # tuple is needed. Cosmetic.
+  "B007",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The fixtures embed Blutter output verbatim -- real disassembly lines run to
+# 140 columns. Rewrapping them would mean the parser tests no longer feed the
+# parser what the parser actually sees.
+"tests/**" = ["E501"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+# --------------------------------------------------------------------------- #
+
+[tool.mypy]
+# Scoped to the package plus its launcher. tests/ and selftest_emit.py are not
+# type-checked: they are full of deliberate `assert x is not None` narrowing
+# that mypy cannot see through, and they are already executed on every run,
+# which is a stronger check than annotating them.
+files = ["flutter_decompile", "main.py"]
+# Pinned rather than following the interpreter, so all nine matrix jobs agree
+# on the answer. 3.10 is the floor in requires-python.
+python_version = "3.10"
+warn_unused_configs = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+# Runtime is stdlib-only, so there is nothing to be missing -- but the dev
+# extra's own imports should not be able to fail the build.
+ignore_missing_imports = true
+
+# ---- mypy baseline --------------------------------------------------------
+# 21 pre-existing errors, frozen per module so that CI is green today and any
+# NEW error of any kind still fails the build. None of these is a live crash:
+# `--capability`, `--check`, the pytest suite and selftest_emit.py all pass.
+# Fix the code, then delete the entry -- do not add to this list.
+
+[[tool.mypy.overrides]]
+# 5 errors. BodyEvent.offset is Optional[int] and the candidate builders do
+# `ev.offset + 1` / "%x" % ev.offset without narrowing first. These want a real
+# guard, not a cast, so they are left for whoever owns the inference rules.
+module = "flutter_decompile.infer"
+disable_error_code = ["operator", "str-format", "union-attr"]
+
+[[tool.mypy.overrides]]
+# 4 errors. A loop reuses the name `f` for both a FieldIR and an EmittedFile in
+# the same function, so mypy pins the second loop to the first one's type.
+# Runtime is fine; renaming one of the two loop variables clears it.
+module = "flutter_decompile.report"
+disable_error_code = ["assignment", "attr-defined"]
+
+[[tool.mypy.overrides]]
+# 2 errors, same shape as report.py: `n` is reused for an int and then for a
+# note string in _method_doc.
+module = "flutter_decompile.emit"
+disable_error_code = ["assignment", "arg-type"]
+
+[[tool.mypy.overrides]]
+# 2 errors. `e` is used as a byte offset inside the try block and as the
+# `except ... as e` target at the bottom of the same function. Legal at
+# runtime, but mypy refuses to let an except-target name be reused.
+module = "flutter_decompile.apk"
+disable_error_code = ["misc"]
+
+[[tool.mypy.overrides]]
+# 6 errors, three shapes:
+#   arg-type  -- bootstrap's locator returns Optional[str] and it is handed
+#                straight to adopt()/run_blutter() after checking a *different*
+#                variable.
+#   assignment/type-var -- the module-level _STATE dict is inferred as
+#                dict[str, int | bool | None] from its literal, then gets
+#                strings written into it; and AcquireResult.libapp is
+#                Optional[str] but goes into os.path.abspath() unguarded.
+# The _STATE one is a one-line annotation away; the Optional ones want a real
+# guard rather than a cast, so they are left to whoever owns the front end.
+module = "flutter_decompile.frontend"
+disable_error_code = ["arg-type", "assignment", "type-var"]
+
+[[tool.mypy.overrides]]
+# 1 error. An argparse-derived Optional[str] assigned into a str variable.
+module = "flutter_decompile.cli"
+disable_error_code = ["assignment"]
+
+[[tool.mypy.overrides]]
+# 1 error. An empty list literal whose element type mypy cannot infer because
+# the only assignment is in a branch.
+module = "flutter_decompile.parse_asm"
+disable_error_code = ["var-annotated"]
+
+# --------------------------------------------------------------------------- #
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+# --strict-markers/--strict-config turn a typo'd marker or ini key into a
+# failure instead of a silently skipped test.
+addopts = "-q --strict-markers --strict-config"

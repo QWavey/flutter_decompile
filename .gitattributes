@@ -1,0 +1,17 @@
+# LF in the repository and LF in the working tree, on every platform.
+#
+# This is not cosmetic. The test fixtures hold Blutter disassembly copied out
+# verbatim as triple-quoted Python strings, and the parser is line-oriented. On
+# a Windows checkout with core.autocrlf=true (the default on GitHub's Windows
+# runners) those literals would pick up \r, get written to the fixture file,
+# and the parser would be fed input that does not match what Blutter actually
+# produces. Pinning eol=lf keeps the Windows CI job testing the same bytes as
+# the Linux one.
+* text=auto eol=lf
+
+# Never touched by the newline logic.
+*.png binary
+*.jpg binary
+*.so  binary
+*.apk binary
+*.zip binary

@@ -191,7 +191,9 @@ RE_POOL_FIELD = re.compile(
     r"(?P<flags>[^(]*?)\s*\(offset:\s*0x(?P<off>[0-9a-fA-F]+)\)"
 )
 # SEEN: "AllocateAccountBlockStub -> AccountBlock (size=0x10)"
-RE_ALLOC_STUB = re.compile(r"^Allocate(?P<cls>\w+)Stub\s*->\s*(?P<target>[\w$<>&]+)\s*\(size=0x(?P<size>[0-9a-fA-F]+)\)")
+RE_ALLOC_STUB = re.compile(
+    r"^Allocate(?P<cls>\w+)Stub\s*->\s*(?P<target>[\w$<>&]+)\s*\(size=0x(?P<size>[0-9a-fA-F]+)\)"
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -242,10 +244,16 @@ class CallEdge:
 class FieldAccess:
     """LoadField / StoreField.
 
-    Blutter prints the *untagged* byte offset in bodies (`field_7`) while the
-    field declaration list prints the *tagged* heap offset (`field_8`).
-    kHeapObjectTag == 1, so decl_offset == body_offset + 1.  Both are kept so
-    stage-5 inference never has to guess which convention it is looking at.
+    Blutter prints the *tagged* offset in bodies (`r3->field_7`) and the
+    *untagged* one on declaration lines (`_Mint field_8;`).  A body loads
+    through a tagged pointer, whose low bit is set, so the byte it names is one
+    below the field's true offset: kHeapObjectTag == 1, and therefore
+    decl_offset == body_offset + 1.  Both are kept so stage-5 inference never
+    has to guess which convention it is looking at.
+
+    (This comment used to state the two the other way round while giving the
+    same arithmetic.  ir.py's POINTER_TAG_ADJUST is the correct one, and its
+    OffsetSpace enum agrees: TAGGED is what a body prints.)
     """
     addr: int
     kind: str                 # "load" | "store"

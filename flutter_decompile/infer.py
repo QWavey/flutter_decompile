@@ -575,6 +575,13 @@ def infer_class(
         if ok and fld is not None and fld.recovered_name:
             ok, reason = False, "field already has a RECOVERED name (%s)" % fld.recovered_name
 
+        # The name the CANDIDATES carry, which is not necessarily the name we
+        # end up emitting - a collision can rename the winner below. Evidence
+        # has to be matched against this, or a renamed field silently ships
+        # with no evidence at all: an inference presented as a fact, which is
+        # the one thing this tool must never do.
+        evidence_name = dec.winner
+
         if ok and dec.winner in taken:
             alt = "_" + dec.winner.lstrip("_")
             if alt not in taken and alt != dec.winner:
@@ -612,8 +619,24 @@ def infer_class(
         fld.inferred_name = dec.winner
         fld.name_confidence = dec.final_confidence
         for c in cands:
-            if c.name == dec.winner:
+            if c.name == evidence_name:
                 fld.evidence.append(c.as_evidence())
+        if dec.winner != evidence_name:
+            # Say so, rather than letting the emitted name quietly differ from
+            # the one every piece of evidence below it actually argues for.
+            fld.evidence.append(
+                Evidence(
+                    rule="renamed_for_collision",
+                    detail=(
+                        "the evidence below argues for %r; renamed to %r "
+                        "because %r is already a member of this class"
+                        % (evidence_name, dec.winner, evidence_name)
+                    ),
+                    confidence=Confidence.RECOVERED,
+                    weight=0.0,
+                    source=dec.candidates[0].source if dec.candidates else None,
+                )
+            )
         if dec.runner_up:
             fld.rejected.append(
                 "%s (weight %.1f, lost to %s at %.1f)"

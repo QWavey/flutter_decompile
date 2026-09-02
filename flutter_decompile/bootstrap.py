@@ -316,6 +316,12 @@ def ensure_blutter(hint: Optional[str] = None,
     # git's own progress and its own error text go straight to the terminal:
     # "Could not resolve host" or "407 Proxy Authentication Required" says
     # more about the network than anything we could infer from an exit code.
+    # Flush first, or into a log file git's unbuffered stderr lands above
+    # everything we have printed so far and the ordering is a lie.
+    try:
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass
     try:
         result = subprocess.run(["git", "clone", "--depth", "1",
                                  BLUTTER_URL, target],

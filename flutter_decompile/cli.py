@@ -246,20 +246,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         # A tree on disk is what makes this usable across a whole APK: 266
         # files of skeleton scrolling past a terminal is not readable by
         # anyone.
-        out_root = os.path.join(args.out, "skeletons") if args.out else None
+        #
+        # Deliberately named apart from out_root and derived FROM it. This used
+        # to rebind out_root itself, which set it to None whenever -o was
+        # omitted and then crashed the report writer below on a path join.
+        # Deriving it also means --skeleton writes a tree without -o, into the
+        # same default directory as everything else, instead of silently
+        # printing and saving nothing.
+        skeleton_root = os.path.join(out_root, "skeletons")
 
         for lib in matched:
             text = pa.render_skeleton(lib)
             print()
             print(text)
-            if out_root:
-                dest = os.path.join(out_root, _url_to_path(lib.url))
+            if skeleton_root:
+                dest = os.path.join(skeleton_root, _url_to_path(lib.url))
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 with open(dest, "w", encoding="utf-8") as fh:
                     fh.write(text + "\n")
 
-        if out_root and matched:
-            log("[out] %d skeleton(s) -> %s" % (len(matched), out_root))
+        if skeleton_root and matched:
+            log("[out] %d skeleton(s) -> %s" % (len(matched), skeleton_root))
         if not matched:
             log("[skeleton] nothing matched %r" % (args.skeleton,))
 

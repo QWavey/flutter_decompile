@@ -53,6 +53,11 @@ That reports what is on your machine and what is missing, with the install
 command for your platform. Blutter itself is fetched automatically on first
 use, so it is fine for it to be absent.
 
+If you would rather have it on your `PATH`, `pip install .` puts a
+`flutter-decompile` command there. It is the same program as `python main.py`
+— same code, same flags — not a second implementation, so every `python
+main.py ...` line below works unchanged as `flutter-decompile ...`.
+
 ## Use
 
 ```bash
@@ -104,8 +109,9 @@ from `vcvars64.bat`, so you do not need a developer prompt.
 
 ### The lower-level CLI
 
-`main.py` is a friendly front end over `flutter_decompile.cli`, which exposes
-everything individually if you want it:
+`main.py` (and the installed `flutter-decompile`) is a friendly front end over
+`flutter_decompile.cli`, which exposes everything individually if you want it,
+as `python -m flutter_decompile <input> ...`:
 
 | Flag | Effect |
 |---|---|
