@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flutter_decompile"
+version = "0.1.0"
+description = "Reconstruct a structural skeleton of a Flutter app from its AOT snapshot, and mark every hole."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["flutter", "dart", "aot", "reverse-engineering", "apk", "blutter"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Topic :: Software Development :: Disassemblers",
+]
+
+[project.scripts]
+flutter_decompile = "flutter_decompile.cli:main"
+
+[tool.setuptools]
+packages = ["flutter_decompile"]
