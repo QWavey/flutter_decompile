@@ -36,7 +36,7 @@ from __future__ import annotations
 import enum
 import re
 from dataclasses import dataclass, field as dc_field
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 TOOL_NAME = "flutter_decompile"
 TOOL_VERSION = "0.1"

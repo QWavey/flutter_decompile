@@ -52,7 +52,7 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field as dc_field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .ir import (
     BodyEvent,
@@ -60,8 +60,6 @@ from .ir import (
     Confidence,
     Evidence,
     EventKind,
-    FieldIR,
-    LibraryIR,
     MethodIR,
     MethodKind,
     ProgramIR,

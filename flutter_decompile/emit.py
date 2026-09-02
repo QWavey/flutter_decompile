@@ -28,7 +28,7 @@ import datetime
 import os
 import re
 from dataclasses import dataclass, field as dc_field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .ir import (
     CORE_TYPES,
@@ -37,15 +37,11 @@ from .ir import (
     TOOL_VERSION,
     BodyStatus,
     ClassIR,
-    Confidence,
-    ConstObjectIR,
-    EnumValueIR,
     FieldIR,
     LibraryIR,
     MethodIR,
     MethodKind,
     Modifier,
-    ParamIR,
     ProgramIR,
     escape_dart_string,
     sanitize_identifier,

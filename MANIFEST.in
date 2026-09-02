@@ -1,0 +1,15 @@
+# What goes into an sdist beyond the package itself.
+#
+# setuptools already ships pyproject.toml, README.md (the readme) and LICENSE
+# (license-files). The rest is listed here so that an sdist is the same thing
+# as a checkout: main.py is the front end people run without installing, and
+# the self-test is how you check the emitter half without an APK.
+include LICENSE
+include README.md
+include main.py
+include selftest_emit.py
+recursive-include tests *.py
+
+# Never ship build leftovers.
+global-exclude __pycache__
+global-exclude *.py[cod]

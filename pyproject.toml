@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,16 +8,63 @@ version = "0.1.0"
 description = "Reconstruct a structural skeleton of a Flutter app from its AOT snapshot, and mark every hole."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-keywords = ["flutter", "dart", "aot", "reverse-engineering", "apk", "blutter"]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ email = "hylkesiegersma@gmail.com" }]
+keywords = [
+  "flutter",
+  "dart",
+  "aot",
+  "snapshot",
+  "reverse-engineering",
+  "disassembly",
+  "apk",
+  "android",
+  "blutter",
+]
 classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: Microsoft :: Windows",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Security",
   "Topic :: Software Development :: Disassemblers",
+  "Topic :: Utilities",
+]
+
+# No runtime dependencies, and that is a deliberate property of the tool, not
+# an oversight: it must run on a bare Python 3.10 with nothing installed. The
+# heavy lifting is done by external programs (git, cmake, a C++ compiler,
+# Blutter) that the tool checks for and reports on rather than vendoring.
+dependencies = []
+
+[project.optional-dependencies]
+# Development only. Nothing here is imported at runtime; `pip install
+# flutter_decompile` must never pull any of it in.
+dev = [
+  "pytest>=7",
+  "ruff>=0.4",
+  "mypy>=1.8",
 ]
 
 [project.scripts]
-flutter_decompile = "flutter_decompile.cli:main"
+# The friendly one-command front end, the same program as `python main.py`
+# from a checkout. The low-level parser/emitter CLI stays where it was:
+# `python -m flutter_decompile <blutter_out> ...`.
+flutter-decompile = "flutter_decompile.frontend:main"
+
+# [project.urls] is deliberately absent: this repo has no published home yet
+# (see PUSH_TO_GITHUB.md). Add Homepage/Source/Issues here once it does, rather
+# than shipping a URL that 404s.
 
 [tool.setuptools]
 packages = ["flutter_decompile"]
