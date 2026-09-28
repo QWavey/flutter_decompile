@@ -1,72 +1,94 @@
 # flutter_decompile
 
-Reconstructs a structural skeleton of a Flutter app from its AOT snapshot, and
-marks every hole.
+Reconstructs a Flutter/Dart app from its release APK as readable Dart — **whole
+methods, with bodies** — and marks every hole honestly.
 
-## Read this first
+## What it does, and what it can't
 
-**This tool does not decompile Dart, and no tool can.** Flutter's release build
-compiles Dart to native machine code. What ends up in `libapp.so` is an AOT
-snapshot: it keeps the object graph the runtime needs and throws away
-everything the runtime does not. Statement-level source, comments, formatting,
-import lists, local variable names and parameter names are simply not in the
-file. They are not obfuscated, not compressed, not encrypted — they were never
-written.
+Point it at a release `.apk` (or `.apks` / `.xapk` / `.aab` / a `libapp.so`) and
+it rebuilds the whole app. The code comes back as `.dart` files: class shapes,
+method signatures, and a **faithful reconstruction of every method body** — every
+call (resolved to `library::Class::method` where the snapshot named it), every
+string literal, every field load/store, every allocation, in the order the
+machine runs them. Everything else the APK carries — the Flutter asset bundle,
+images, fonts, shaders, Android resources, native libraries, the manifest — is
+extracted verbatim next to it, so the output is a restored project, not just a
+pile of code. That is a real decompilation: the complete app, in a form you can
+read.
 
-Anything that claims to give you the original `.dart` files back is either
-guessing or lying. This tool refuses to do either: it emits what the snapshot
-actually contains and labels the rest.
+What it will **not** do is pretend to be the file the author typed. Flutter's
+release build compiles Dart to native machine code; what lands in `libapp.so` is
+an AOT snapshot that keeps the object graph the runtime needs and drops the rest.
+Statement-level source layout, comments, local variable names, parameter names
+and **instance-field names** were never written into the file. No tool can bring
+back what isn't there — so this one doesn't invent it. It emits what the snapshot
+contains and **labels** the rest: a field whose name is gone shows up as
+`field_0xNN`, value names in bodies are register names (`v0`, `v3`), and every
+reconstructed file opens with a header saying exactly that.
+
+The result reads like decompiled output from any serious RE tool (think jadx for
+Android/Java): the logic is all there, the cosmetic surface is reconstructed, and
+nothing is disguised as something it isn't.
 
 ### What survives
 
-| Recovered | Partial | Destroyed |
+| Recovered | Partial | Reconstructed as a hole |
 |---|---|---|
-| library URL and file path | method return types | statement bodies |
+| library URL and file path | method return types | statement-level source layout |
 | class and superclass names | positional parameter types | comments and formatting |
-| class id and instance size | instance field types (lowered to VM types) | **instance field names** |
-| method / getter / setter names | | local variable names |
+| class id and instance size | instance field types (VM types) | **instance field names** (`field_0xNN`) |
+| method / getter / setter names | | local variable names (`v0`, `v3`) |
 | static field **names** | | positional parameter names |
-| `late` instance field names | | import and export lists |
-| `async` / `sync*` markers | | generics erased at runtime |
+| every call, in body order | | import and export lists |
+| every string literal | | generics erased at runtime |
+| field load/store offsets | | |
+| `async` / `sync*` markers | | |
 | enum names, ordinals, `.name` | | |
-| string literals, const object graphs | | |
-| named-argument names (at call sites) | | |
 
-The one that hurts is **instance field names**. AOT stores a field as an
-*offset*, so `user.name` compiles to "load the pointer 12 bytes into this
-object". The name is gone. `--infer-fields` reconstructs some of them from
-evidence — a `toJson()` map literal pairs a key with the very next field load,
-a `toString()` label precedes the field it describes — and every inferred name
-is emitted with the evidence that produced it and a confidence level. An
-inference is a hypothesis with a citation, not a recovered name, and the output
-says so on every single one.
+`--infer-fields` reconstructs some instance-field names from evidence — a
+`toJson()` map literal pairs a key with the very next field load, a `toString()`
+label precedes the field it describes — and every inferred name is emitted with
+the evidence that produced it and a confidence tag. An inference is a hypothesis
+with a citation, not a recovered name, and the output says so on every one.
 
 ## Install
 
-Nothing to install. Python 3.10+, standard library only.
+Nothing to install for the core tool. Python 3.10+, standard library only.
 
 ```bash
 python main.py --check
 ```
 
 That reports what is on your machine and what is missing, with the install
-command for your platform. Blutter itself is fetched automatically on first
-use, so it is fine for it to be absent.
+command for your platform. Blutter itself is fetched automatically on first use.
 
-If you would rather have it on your `PATH`, `pip install .` puts a
-`flutter-decompile` command there. It is the same program as `python main.py`
-— same code, same flags — not a second implementation, so every `python
-main.py ...` line below works unchanged as `flutter-decompile ...`.
+For the command on your `PATH`, `pip install .` gives you `flutter-decompile`
+(same program as `python main.py`). For the GUI, add the extra:
 
-## Use
+```bash
+pip install ".[gui]"
+```
+
+## Use — the GUI (Windows 11)
+
+```bash
+python gui.py
+```
+
+A Fluent (Windows 11) window: **select the APK**, optionally pick an output
+folder, and press **Start**. The log streams as it runs; **Stop** kills the
+pipeline — including a long Dart VM build — cleanly. Installed, it's
+`flutter-decompile-gui`.
+
+## Use — the command line
 
 ```bash
 python main.py --decompile app.apk
 ```
 
-That is the whole interface. It checks the toolchain, clones Blutter if you do
-not have it, builds a Dart VM matching the APK's snapshot, disassembles it,
-and writes a skeleton of every library plus a report.
+That's the whole interface. It checks the toolchain, clones Blutter if needed,
+builds a Dart VM matching the APK's snapshot, disassembles it, and writes a
+reconstructed `.dart` tree for every app library plus a report.
 
 ```bash
 python main.py --decompile app.apk --out mydir
@@ -75,10 +97,30 @@ python main.py --decompile app.apk --quick     # skeleton only, much faster
 python main.py --decompile blutter_out/        # re-analyse without rebuilding
 ```
 
+It restores the **whole app**, not just its code:
+
+```
+<out>/
+  dart/            reconstructed Dart source tree (bodies included)
+  apk_contents/    everything else in the APK, extracted verbatim:
+                     the Flutter asset bundle (images, fonts, shaders, data),
+                     Android resources, native .so libraries, the manifest
+  skeletons/       signatures-only listing
+  RESTORED.md      a manifest saying, per part, how honestly it came back
+  report.md        parse/coverage report
+```
+
+Everything under `apk_contents/` is **RECOVERED** — the real bytes from the
+archive. The Dart folder and file names are **recovered from the snapshot's
+library URLs**; only Dart *bodies* are reconstructed and only field/local names
+are holes. `RESTORED.md` labels every part, and a couple of things
+(`AndroidManifest.xml` is binary AXML, `.dex` files are plugin Java/Kotlin) are
+handed back verbatim rather than pretended-decoded.
+
 ### How long it takes
 
-It prints a plan with timings before it starts anything expensive, and asks
-before committing you to the long part.
+It prints a plan with timings before anything expensive, and asks before the long
+part.
 
 | stage | time |
 |---|---|
@@ -87,35 +129,35 @@ before committing you to the long part.
 | unpack the APK | seconds |
 | **build a matching Dart VM** | **20m - 1h, first run per Dart version** |
 | disassemble the snapshot | 1 - 10 min |
-| parse + emit | seconds |
+| parse + reconstruct + emit | seconds |
 
-The Dart VM build is the long pole and it is unavoidable: Blutter needs a VM
-matching the snapshot to interpret it. It is cached, so the second APK on the
-same Dart version takes minutes rather than an hour.
+The Dart VM build is the long pole and unavoidable: Blutter needs a VM matching
+the snapshot to interpret it. It's cached, so the second APK on the same Dart
+version takes minutes rather than an hour.
 
 ### It fixes Blutter's build for you
 
 Two things break a fresh Blutter clone on a current toolchain, and both are
 patched automatically:
 
-- CMake 4.x dropped compatibility with `cmake_minimum_required` below 3.5,
-  which several vendored builds still declare.
+- CMake 4.x dropped compatibility with `cmake_minimum_required` below 3.5, which
+  several vendored builds still declare.
 - One `CMakeLists.txt` calls `string(REPLACE ... ${CMAKE_CXX_FLAGS})` unquoted,
-  which fails outright when that variable is empty - as it is on a default
-  configure.
+  which fails when that variable is empty — as it is on a default configure.
 
 On Windows it also locates MSVC through `vswhere` and captures the environment
-from `vcvars64.bat`, so you do not need a developer prompt.
+from `vcvars64.bat`, so you don't need a developer prompt.
 
 ### The lower-level CLI
 
-`main.py` (and the installed `flutter-decompile`) is a friendly front end over
-`flutter_decompile.cli`, which exposes everything individually if you want it,
-as `python -m flutter_decompile <input> ...`:
+`main.py` (and `flutter-decompile`) is a friendly front end over
+`flutter_decompile.cli`, which exposes everything individually as
+`python -m flutter_decompile <input> ...`:
 
 | Flag | Effect |
 |---|---|
-| `--skeleton GLOB` | Only libraries matching a glob (`**/panic/**`) or substring |
+| `--emit` | Write the reconstructed `.dart` tree (bodies included) to `-o/dart/` |
+| `--skeleton GLOB` | Signatures-only listing for libraries matching a glob or substring |
 | `--infer-fields safe\|aggressive` | Reconstruct field names, with evidence |
 | `--include-deps` | All packages, not just the app's own |
 | `--no-bodies` | Skeleton only; much faster |
@@ -123,26 +165,28 @@ as `python -m flutter_decompile <input> ...`:
 | `--strict` | Non-zero exit if parse coverage is not 100% |
 | `--dump-model FILE` | The whole parsed model as JSON |
 
-## Why the emit stage refuses
+## How the bodies are reconstructed
 
-`--emit` (stage 6, writing compilable `.dart`) is deliberately not implemented.
-Everything needed to write a *plausible* file is here — class shapes, method
-names, string constants — and that is exactly the problem. A file that compiles
-and looks right, with invented field names and empty method bodies, is worse
-than no file: it reads as recovered source and it is not.
+Each method body is the linearised trace of what the AOT code does, rendered as
+Dart-flavoured statements:
 
-The parsed model is available through `--dump-model` and `--skeleton`. Build on
-that if you want to generate code; just do not let the output pretend to be
-something it is not.
+- A resolved call becomes `v0 = decode(v2);  // -> [dart:convert] Base64Codec::decode`.
+- A field access becomes `v1 = v0.field_0x13;` (or its real name, if recovered or
+  inferred).
+- A string load becomes `v2 = "-";`.
+- Anything the parser didn't lift to a high-level op (branches, compares, frame
+  setup) is kept verbatim as a `// comment`, so the trace is complete and nothing
+  is silently dropped.
+
+Register names are kept on purpose: a body that reads `v3 = v4.field_0xb` can't be
+mistaken for hand-written source, which is the whole point.
 
 ## Verifying
 
 ```bash
 python selftest_emit.py
+python -m pytest
 ```
-
-Runs the emitter against known structures and prints inferred field names with
-their evidence chains.
 
 ## Licence
 

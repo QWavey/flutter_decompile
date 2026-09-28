@@ -534,9 +534,10 @@ def _run(args, ap) -> int:
     check_input(args.decompile)
 
     print(f"flutter_decompile {__version__}")
-    print("Reconstructs a structural skeleton. It does not, and cannot, give "
-          "you\nthe original Dart source - run --capability for exactly what "
-          "survives.")
+    print("Reconstructs the whole app as readable Dart, bodies included. It is a\n"
+          "faithful machine reconstruction of the AOT snapshot, not the original\n"
+          "source - field and local names the snapshot dropped stay marked as holes.\n"
+          "Run --capability for exactly what survives.")
 
     out = prepare_out_dir(args.out, force=args.force or args.yes)
     _STATE["out"] = out
@@ -718,21 +719,50 @@ def _run(args, ap) -> int:
     progress.stage("Parsing the disassembly")
     from . import cli as fd_cli
     argv = [run.out_dir, "--no-blutter", "-o", out,
-            "--skeleton", args.only, "--report", "both"]
+            "--skeleton", args.only, "--emit", "--report", "both"]
     if args.quick:
         argv.append("--no-bodies")
     argv += ["-v"] * min(args.verbose, 2)
     rc = fd_cli.main(argv)
     progress.done()
 
+    # ---- restore the rest of the APK -------------------------------------
+    # The Dart is only half the app. When the input was an actual archive,
+    # unpack everything else it carries (assets, resources, native libs, the
+    # manifest) so the output is a restored project, not just its code. Each
+    # part is labelled for exactly how honestly it came back.
+    restored_md = None
+    if not adopting and args.decompile.lower().endswith((".apk", ".aab", ".zip")):
+        progress.stage("Restoring the rest of the APK (assets, resources, libs)")
+        try:
+            from . import restore as fd_restore
+            res = fd_restore.extract_all(args.decompile, out, log=_say)
+            dart_dir = os.path.join(out, "dart")
+            n_dart = (sum(1 for _d, _s, fs in os.walk(dart_dir) for f in fs
+                          if f.endswith(".dart"))
+                      if os.path.isdir(dart_dir) else 0)
+            restored_md = fd_restore.write_manifest(out, res, n_dart, dart_dir)
+        except (OSError, zipfile.BadZipFile) as e:
+            _say(f"  note: could not fully restore the APK contents: {e}")
+        progress.done()
+
     print(f"\nFinished in {progress.total()}.")
     # Printed by looking, not by assuming. A path in this list that does not
     # exist is worse than no line at all: it sends people hunting for a file
     # that was never written.
-    skeletons = os.path.join(out, "skeletons")
-    print("\n  skeletons:  " + (skeletons if os.path.isdir(skeletons)
+    dart = os.path.join(out, "dart")
+    print("\n  decompiled: " + (dart if os.path.isdir(dart)
                                 else f"none written - nothing matched --only "
                                      f"{args.only!r}"))
+    skeletons = os.path.join(out, "skeletons")
+    print("  skeletons:  " + (skeletons if os.path.isdir(skeletons)
+                              else f"none written - nothing matched --only "
+                                   f"{args.only!r}"))
+    apk_contents = os.path.join(out, "apk_contents")
+    if os.path.isdir(apk_contents):
+        print(f"  apk files:  {apk_contents}")
+    if restored_md:
+        print(f"  restored:   {restored_md}")
     report = _first_existing(os.path.join(out, "report.md"),
                              os.path.join(out, "skeletons", "report.md"))
     print(f"  report:     {report or 'not written'}")

@@ -103,7 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="retain the full ordered semantic event list per method "
                           "(high memory)")
     rec.add_argument("--emit", action="store_true",
-                     help="(stage 6 -- NOT IMPLEMENTED in 0.1; exits non-zero)")
+                     help="write a full reconstructed .dart tree (bodies "
+                          "included) under -o/dart/. Honours --skeleton's GLOB "
+                          "as a filter, --packages, and --infer-fields.")
 
     rep = ap.add_argument_group("reporting")
     rep.add_argument("--report", choices=("json", "md", "both", "none"), default="both")
@@ -221,7 +223,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     t0 = time.time()
     prog = pa.parse_tree(asm_root, packages=packages,
                          collect_bodies=not args.no_bodies,
-                         body_events=args.body_events,
+                         body_events=args.body_events or args.emit,
                          progress=lambda s: log("[parse] " + s, 1))
     parse_secs = time.time() - t0
 
@@ -294,11 +296,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(summary_line(report))
 
     if args.emit:
-        print("\n--emit: stage 6 (Dart source emission) is NOT IMPLEMENTED in "
-              "%s.\nThe parsed model is available via --dump-model and "
-              "--skeleton.\nThis tool will not write plausible-looking Dart it "
-              "cannot justify." % __version__, file=sys.stderr)
-        return 4
+        from . import reconstruct
+        dart_root = os.path.join(out_root, "dart")
+        only = "*" if not args.skeleton else args.skeleton
+        written = reconstruct.emit_tree(prog, dart_root, only=only,
+                                        log=lambda s: log(s, 0))
+        report["emit"] = {"files": len(written), "dart_root": dart_root}
+        print("reconstructed %d .dart file(s) -> %s" % (len(written), dart_root))
 
     if args.strict and cov["unparsed_lines"] > 0:
         print("--strict: %d unparsed lines (parse coverage %.6f)"

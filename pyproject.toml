@@ -55,12 +55,23 @@ dev = [
   "ruff>=0.4",
   "mypy>=1.8",
 ]
+# The optional Fluent (Windows 11) GUI. The core tool stays stdlib-only; these
+# are pulled in only by `pip install "flutter_decompile[gui]"`.
+gui = [
+  "PyQt6>=6.6",
+  "PyQt6-Fluent-Widgets>=1.5",
+]
 
 [project.scripts]
 # The friendly one-command front end, the same program as `python main.py`
 # from a checkout. The low-level parser/emitter CLI stays where it was:
 # `python -m flutter_decompile <blutter_out> ...`.
 flutter-decompile = "flutter_decompile.frontend:main"
+
+[project.gui-scripts]
+# The Fluent GUI (needs the [gui] extra). A gui-script, so on Windows it
+# launches without a console window.
+flutter-decompile-gui = "flutter_decompile.gui:main"
 
 # [project.urls] is deliberately absent: this repo has no published home yet
 # (see PUSH_TO_GITHUB.md). Add Homepage/Source/Issues here once it does, rather

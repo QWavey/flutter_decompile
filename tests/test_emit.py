@@ -400,27 +400,33 @@ def dart_files_under(root: str):
             for f in files if f.endswith(".dart")]
 
 
-def test_emit_exits_non_zero_and_writes_no_dart(tmp_path, blutter_out, capsys):
+def test_emit_writes_a_reconstructed_dart_tree(tmp_path, blutter_out, capsys):
     out = os.path.join(str(tmp_path), "out")
     rc = cli.main(["--blutter-out", blutter_out, "-o", out,
                    "--report", "none", "--emit"])
-    assert rc == 4, "a refusal that exits 0 is not a refusal"
-    assert dart_files_under(out) == [], \
-        "stage 6 is unimplemented, so not one line of Dart may be written"
+    assert rc == 0
+    written = dart_files_under(os.path.join(out, "dart"))
+    assert written, "--emit produced no .dart files"
 
 
-def test_the_refusal_explains_itself(tmp_path, blutter_out, capsys):
+def test_every_emitted_file_says_it_is_a_reconstruction(tmp_path, blutter_out):
+    """The output must never pretend to be original source: every file carries
+    the RECONSTRUCTED header so a reader is told, up front, what it is."""
     out = os.path.join(str(tmp_path), "out")
     cli.main(["--blutter-out", blutter_out, "-o", out, "--report", "none", "--emit"])
-    err = capsys.readouterr().err
-    assert "NOT IMPLEMENTED" in err
-    assert "will not write plausible-looking Dart it cannot justify" in err
+    for path in dart_files_under(os.path.join(out, "dart")):
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        assert "RECONSTRUCTED by flutter_decompile -- NOT original source" in text
+        assert "NOT the file the author wrote" not in text  # sanity of wording
+        # A destroyed field name is shown as a hole, never invented silently.
+        # If any `field_0x` appears, it must be flagged as such, not disguised.
 
 
-def test_emit_is_advertised_as_unimplemented_in_the_help():
+def test_emit_is_advertised_in_the_help():
     help_text = cli.build_parser().format_help()
     assert "--emit" in help_text
-    assert "NOT IMPLEMENTED" in help_text
+    assert "reconstructed .dart tree" in help_text
 
 
 def test_the_unimplemented_stages_are_declared_in_the_package():
