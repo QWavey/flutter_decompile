@@ -618,14 +618,9 @@ def _run(args, ap) -> int:
             layout = apk_mod.snapshot_symbol_layout(acq.libapp)
             warn = apk_mod.blutter_support_warning(layout, dart_version)
             if warn and not args.try_unsupported:
-                raise Abort(
-                    "Likely unsupported Dart version -- stopping before the "
-                    "20-60 min build.",
-                    warn,
-                    "Pass --try-unsupported to build anyway (it will run the "
-                    "full Dart VM build\nand then most likely fail at Blutter's "
-                    "own compile step).",
-                    code=EXIT_FAILED)
+                progress.done()
+                return _run_fallback(out, acq, args.decompile, dart_version,
+                                     warn, progress)
             if warn:
                 print("\n  !! LIKELY UNSUPPORTED DART VERSION (continuing "
                       "because --try-unsupported was given)")
@@ -762,7 +757,6 @@ def _run(args, ap) -> int:
     # unpack everything else it carries (assets, resources, native libs, the
     # manifest) so the output is a restored project, not just its code. Each
     # part is labelled for exactly how honestly it came back.
-    restored_md = None
     app_facts: dict = {}
     if not adopting and args.decompile.lower().endswith((".apk", ".aab", ".zip")):
         progress.stage("Restoring the rest of the APK (assets, resources, libs)")
@@ -812,6 +806,67 @@ def _run(args, ap) -> int:
     print("attached, not recovered names. Everything else came out of the "
           "snapshot.")
     return rc
+
+
+def _run_fallback(out, acq, apk_path, dart_version, warn, progress) -> int:
+    """Blutter can't handle this Dart version. Instead of failing, recover
+    everything that doesn't need the Dart VM: the app's library tree, strings,
+    a raw disassembly, and the full APK restore."""
+    from . import fallback as fb
+
+    print("\n  !! Blutter cannot process this Dart version -- using the "
+          "Blutter-free fallback.")
+    for line in warn.splitlines():
+        print("     " + line if line else "")
+    print("\n     (pass --try-unsupported to attempt the full Blutter build "
+          "anyway.)\n")
+
+    # The whole APK: assets, resources, native libs, decoded manifest, pubspec.
+    app_facts: dict = {}
+    if apk_path.lower().endswith((".apk", ".aab", ".zip")):
+        progress.stage("Restoring the APK (assets, resources, libs, manifest)")
+        try:
+            from . import restore as fd_restore
+            res = fd_restore.extract_all(apk_path, out, log=_say)
+            fd_restore.write_manifest(out, res, 0, os.path.join(out, "dart"))
+            app_facts = res.manifest_facts
+        except (OSError, zipfile.BadZipFile) as e:
+            _say(f"  note: could not fully restore the APK: {e}")
+        progress.done()
+
+    # Snapshot-level recovery (no VM needed).
+    summary: dict = {}
+    if acq.libapp:
+        progress.stage("Recovering the library tree, strings and disassembly")
+        try:
+            summary = fb.run(acq.libapp, out, dart_version=dart_version, log=_say)
+            fb.write_report(out, summary, dart_version)
+        except OSError as e:
+            _say(f"  note: fallback extraction failed: {e}")
+        progress.done()
+
+    print(f"\nFinished in {progress.total()} (fallback mode).")
+    if app_facts.get("package"):
+        print(f"\n  app:        {app_facts['package']}"
+              + (f"  v{app_facts['versionName']}" if app_facts.get("versionName") else ""))
+    snap = os.path.join(out, "snapshot")
+    if os.path.isdir(snap):
+        print(f"  libraries:  {os.path.join(snap, 'app_libraries.txt')}"
+              f"  ({summary.get('app_library_count', 0)} app libraries)")
+        print(f"  strings:    {os.path.join(snap, 'strings.txt')}"
+              f"  ({summary.get('strings', 0)})")
+        if summary.get("disassembly"):
+            print(f"  disasm:     {summary['disassembly']}")
+    apk_contents = os.path.join(out, "apk_contents")
+    if os.path.isdir(apk_contents):
+        print(f"  apk files:  {apk_contents}")
+    report = _first_existing(os.path.join(out, "FALLBACK_REPORT.md"))
+    print(f"  report:     {report or 'not written'}")
+    print("\nThis is the honest floor for an unsupported Dart version: real "
+          "names,\nstrings and structure, no invented bodies. For the full "
+          "reconstruction,\nbuild the app with an older stable Flutter (Dart "
+          f"<= {apk_mod.BLUTTER_MAX_DART[0]}.{apk_mod.BLUTTER_MAX_DART[1]}).")
+    return EXIT_OK
 
 
 def _first_existing(*paths: str) -> str:

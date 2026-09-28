@@ -154,10 +154,24 @@ Dart 3.13.2 uses the newer VM layout ... build the app with an older, stable
 Flutter (Dart <= 3.8) and run this again.
 ```
 
-To get output today, build the app with an older stable Flutter. To attempt the
-build anyway (it will run the full VM build and most likely fail at Blutter's
-compile step), pass `--try-unsupported`. The supported ceiling lives in
-`apk.BLUTTER_MAX_DART` and moves up when Blutter gains support for a new release.
+It does **not** dead-end, though. When Blutter can't be used, it runs a
+**Blutter-free fallback** that recovers, straight off the ELF with no VM build:
+
+- the app's **library tree** — every `package:app/...` / `dart:...` URL is stored
+  as plain text in the snapshot, so the folder/file structure the author wrote
+  comes back (names, no bodies) → `snapshot/app_libraries.txt`;
+- **strings** — class/function/field names and every string literal (URLs, keys,
+  messages) → `snapshot/strings.txt`;
+- a **raw ARM64/x64 disassembly** of the snapshot code via Capstone (if
+  installed) → `snapshot/snapshot_disasm.asm`;
+- the full **APK restore** (assets, resources, native libs, decoded manifest,
+  recovered pubspec) exactly as above.
+
+That's the honest floor — real names and structure, no invented bodies — and it
+runs in seconds. `--try-unsupported` instead attempts the full Blutter build
+(runs the VM build, then most likely fails at Blutter's compile step). The
+supported ceiling lives in `apk.BLUTTER_MAX_DART` and moves up when Blutter gains
+support for a new release.
 
 ### How long it takes
 
