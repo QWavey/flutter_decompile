@@ -308,6 +308,54 @@ def _apply_text_patch(path: str, edits, marker: str, dry_run: bool) -> List[Patc
     return applied
 
 
+def windows_externals_present(root: str) -> bool:
+    """Blutter's Windows build reads ICU and Capstone from external/. Both dirs
+    must exist for the Dart VM configure (find_package(ICU REQUIRED)) to pass."""
+    ext = os.path.join(root, "external")
+    return (os.path.isdir(os.path.join(ext, "icu-windows"))
+            and os.path.isdir(os.path.join(ext, "capstone")))
+
+
+def ensure_windows_externals(root: str, log=print) -> bool:
+    """Run Blutter's own scripts/init_env_win.py to fetch ICU + Capstone.
+
+    This is the step Blutter's README makes you run by hand on Windows before
+    the first build; without it the Dart VM configure fails with
+    "Failed to find all ICU components". Idempotent: skipped once external/
+    holds both. Returns True if it downloaded them this call.
+    """
+    if not IS_WINDOWS:
+        return False
+    if windows_externals_present(root):
+        return False
+    script = os.path.join(root, "scripts", "init_env_win.py")
+    if not os.path.isfile(script):
+        raise BlutterError(
+            "Blutter's Windows setup script (scripts/init_env_win.py) is "
+            "missing from the clone,\nso ICU and Capstone cannot be fetched. "
+            "The checkout looks incomplete; delete\n" + root + " and let it "
+            "re-clone.")
+    log("[blutter] fetching ICU + Capstone (Blutter's Windows build deps, "
+        "one-time)...")
+    proc = subprocess.run([sys.executable, script],
+                          cwd=os.path.join(root, "scripts"),
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-1500:]
+        hint = ""
+        if "requests" in tail:
+            hint = ("\nIt needs the 'requests' package: "
+                    "pip install requests")
+        raise BlutterError(
+            "Blutter's Windows dependency setup failed:\n" + tail + hint)
+    if not windows_externals_present(root):
+        raise BlutterError(
+            "Blutter's setup ran but external/icu-windows or external/capstone "
+            "is still missing.\nOutput:\n" + (proc.stdout or "")[-800:])
+    log("[blutter] ICU + Capstone ready")
+    return True
+
+
 def patch_combined_snapshot(root: str, dry_run: bool = False) -> List[Patch]:
     """Teach Blutter to load Dart's combined (_kDartSnapshotData / ...Text)
     snapshot layout. Idempotent; safe to run on an already-patched or
@@ -320,6 +368,31 @@ def patch_combined_snapshot(root: str, dry_run: bool = False) -> List[Patch]:
     if os.path.isfile(extract):
         patches += _apply_text_patch(extract, [(_EXTRACT_BEFORE, _EXTRACT_AFTER)],
                                      "_kDartSnapshotData", dry_run)
+    return patches
+
+
+# The Dart VM source for recent versions uses __VA_OPT__ (a C++20 preprocessor
+# feature). MSVC only accepts it under its conforming preprocessor, which the
+# Dart VM CMakeLists does not enable, so the build dies with C3861 "__VA_OPT__
+# identifier not found". Add /Zc:preprocessor to the MSVC compile options.
+_MSVC_CCOPTS_BEFORE = "\t\t/Oy /GR- /EHs-c-\n"
+_MSVC_CCOPTS_AFTER = "\t\t/Oy /GR- /EHs-c- /Zc:preprocessor\n"
+
+
+def patch_msvc_preprocessor(root: str, dry_run: bool = False) -> List[Patch]:
+    """Add /Zc:preprocessor to the Dart VM's MSVC flags so __VA_OPT__ compiles.
+
+    Windows/MSVC only in effect (the flag lives in an ``if (MSVC)`` block), but
+    applied unconditionally: it is inert on a checkout built with clang, and the
+    per-version dartsdk CMakeLists path is not known ahead of time, so every
+    CMakeLists carrying the exact MSVC cc_opts line is patched. Idempotent."""
+    if not IS_WINDOWS:
+        return []
+    patches: List[Patch] = []
+    for path in _iter_cmake_files(root):
+        patches += _apply_text_patch(
+            path, [(_MSVC_CCOPTS_BEFORE, _MSVC_CCOPTS_AFTER)],
+            "/Zc:preprocessor", dry_run)
     return patches
 
 

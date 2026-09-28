@@ -393,9 +393,14 @@ def prepare_blutter(blutter_py: str, log=print) -> int:
     from . import blutter_driver as bd
 
     root = bd.blutter_root(blutter_py)
+    # Blutter's Windows build needs ICU + Capstone fetched into external/ first
+    # (its README's manual init_env_win.py step). Do it before the VM configure,
+    # which fails on missing ICU otherwise.
+    bd.ensure_windows_externals(root, log=log)
     try:
         patches = bd.patch_cmake_compat(root)
         snap = bd.patch_combined_snapshot(root)
+        snap += bd.patch_msvc_preprocessor(root)
     except OSError as e:
         # The patcher reads defensively but has to write; a checkout on a
         # read-only mount or one owned by another user fails here.
