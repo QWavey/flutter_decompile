@@ -29,11 +29,43 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from . import parse_asm as pa
 
-RECONSTRUCT_VERSION = "1.0"
+RECONSTRUCT_VERSION = "1.1"
+
+
+@dataclass
+class EmitOptions:
+    """How much of the machine trace to keep in a reconstructed body.
+
+    By default the pure register-shuffle noise -- frame setup, stack spills,
+    register-to-register copies, pointer decompression -- is dropped, because it
+    carries no program meaning and buries the operations that do. Every value
+    materialisation, comparison, branch, call, string and field access is kept.
+    ``keep_asm=True`` restores the byte-for-byte trace for when you need it.
+    """
+    keep_asm: bool = False
+
+
+# Lines that are machine bookkeeping, not program behaviour. Dropped by default.
+# Deliberately conservative: only frame management, stack spills, plain register
+# copies and pointer decompression -- never a value load, compare, branch, or
+# arithmetic op, which all carry meaning and stay.
+_NOISE = re.compile(
+    r"^(?:"
+    r"EnterFrame|LeaveFrame|AllocStack\(|CheckStackOverflow|"
+    r"DecompressPointer\b|"
+    r"mov\s+[a-z0-9]+,\s*[a-z0-9]+\s*$|"          # mov reg, reg
+    r"(?:stur|ldur|str|ldr)\s+.*\[(?:fp|SP)\b|"   # a spill to/from the frame
+    r"(?:sub|add)\s+SP,"                          # stack pointer adjust
+    r")")
+
+
+def _is_noise(text: str) -> bool:
+    return _NOISE.match(text.strip()) is not None
 
 # A value produced into register rN becomes vN.  THR/PP/SP/fp and the like are
 # machine registers, not values, and are left as-is when they appear in text.
@@ -64,7 +96,8 @@ def _field_name(cls: pa.ClassIR, body_offset: int) -> str:
 
 
 def _render_event(ev: pa.BodyEvent, cls: pa.ClassIR,
-                  call_at: Dict[int, pa.CallEdge]) -> Optional[str]:
+                  call_at: Dict[int, pa.CallEdge],
+                  opts: EmitOptions) -> Optional[str]:
     """One body event -> one line of reconstructed Dart, or None to drop it."""
     text = ev.text.strip()
 
@@ -116,9 +149,12 @@ def _render_event(ev: pa.BodyEvent, cls: pa.ClassIR,
     elif ev.kind == "SetupParameters":
         return "// params: " + text[len("SetupParameters("):].rstrip(")")
 
-    # Anything the parser did not lift to a semantic op (branches, compares,
-    # frame setup) is kept verbatim as a comment so the trace stays complete
-    # and nothing is silently dropped.
+    # Anything the parser did not lift to a semantic op (value loads, branches,
+    # compares, frame setup) is kept verbatim as a comment. Pure machine
+    # bookkeeping is dropped unless keep_asm is set, so the meaningful lines
+    # are not buried; everything with program meaning is preserved.
+    if not opts.keep_asm and _is_noise(text):
+        return None
     return "// %s" % _v(text)
 
 
@@ -135,7 +171,9 @@ def _calls_by_addr(m: pa.MethodIR) -> Dict[int, pa.CallEdge]:
     return out
 
 
-def render_method(cls: pa.ClassIR, m: pa.MethodIR, indent: str = "  ") -> List[str]:
+def render_method(cls: pa.ClassIR, m: pa.MethodIR, indent: str = "  ",
+                  opts: Optional[EmitOptions] = None) -> List[str]:
+    opts = opts or EmitOptions()
     out: List[str] = []
     loc = ("0x%x" % m.addr) if m.addr is not None else "no-body"
     out.append("%s%s {  // %s" % (indent, m.signature(), loc))
@@ -160,15 +198,43 @@ def render_method(cls: pa.ClassIR, m: pa.MethodIR, indent: str = "  ") -> List[s
 
     call_at = _calls_by_addr(m)
     for ev in events:
-        line = _render_event(ev, cls, call_at)
+        line = _render_event(ev, cls, call_at, opts)
         if line is not None:
             out.append("%s  %s" % (indent, line))
     out.append("%s}" % indent)
     return out
 
 
-def render_class(cls: pa.ClassIR) -> List[str]:
+def _field_line(f: pa.FieldIR, indent: str) -> str:
+    mods = "".join(x for x, on in (("static ", f.is_static), ("late ", f.is_late),
+                                   ("final ", f.is_final), ("const ", f.is_const)) if on)
+    if f.name_confidence == pa.RECOVERED:
+        tag = "recovered"
+    elif f.name:
+        tag = "INFERRED %s" % f.name_confidence
+    else:
+        tag = "name destroyed"
+    return "%s%s%s %s; // offset: 0x%x  [%s]" % (
+        indent, mods, f.vm_type, f.placeholder_name, f.offset or 0, tag)
+
+
+def render_class(cls: pa.ClassIR, opts: Optional[EmitOptions] = None) -> List[str]:
+    opts = opts or EmitOptions()
     out: List[str] = []
+
+    # Blutter names the library scope ``::``. Those are Dart top-level functions
+    # and variables, not members of a class -- wrapping them in `class :: {}`
+    # would be invalid Dart and misrepresent the structure. Emit them flat.
+    if cls.is_library_scope:
+        out.append("// top-level declarations")
+        for f in cls.fields:
+            out.append(_field_line(f, ""))
+        for i, m in enumerate(cls.methods):
+            if i or cls.fields:
+                out.append("")
+            out.extend(render_method(cls, m, indent="", opts=opts))
+        return out
+
     head: List[str] = []
     if cls.is_abstract:
         head.append("abstract")
@@ -186,23 +252,14 @@ def render_class(cls: pa.ClassIR) -> List[str]:
     out.append(" ".join(head) + " {")
 
     for f in cls.fields:
-        mods = "".join(x for x, on in (("static ", f.is_static), ("late ", f.is_late),
-                                       ("final ", f.is_final), ("const ", f.is_const)) if on)
-        if f.name_confidence == pa.RECOVERED:
-            tag = "recovered"
-        elif f.name:
-            tag = "INFERRED %s" % f.name_confidence
-        else:
-            tag = "name destroyed"
-        out.append("  %s%s %s; // offset: 0x%x  [%s]" % (
-            mods, f.vm_type, f.placeholder_name, f.offset or 0, tag))
+        out.append(_field_line(f, "  "))
 
     if cls.fields and cls.methods:
         out.append("")
     for i, m in enumerate(cls.methods):
         if i:
             out.append("")
-        out.extend(render_method(cls, m))
+        out.extend(render_method(cls, m, opts=opts))
     out.append("}")
     return out
 
@@ -221,32 +278,103 @@ _HEADER = [
 ]
 
 
-def render_library(lib: pa.LibraryIR) -> str:
+def render_library(lib: pa.LibraryIR, opts: Optional[EmitOptions] = None) -> str:
+    opts = opts or EmitOptions()
     out: List[str] = list(_HEADER)
     out.append("")
     out.append("// library: %s" % lib.url)
     out.append("// asm:     %s" % lib.asm_path)
     for cls in lib.classes:
         out.append("")
-        out.extend(render_class(cls))
+        out.extend(render_class(cls, opts))
     return "\n".join(out) + "\n"
+
+
+# Package dirs that are the Dart/Flutter SDK or its bundled libraries, not pub
+# dependencies. Everything else at the top of asm/ is a package the app pulled
+# in -- its name is recovered even though its exact version is not in the build.
+_SDK_PACKAGES = frozenset({
+    "dart", "flutter", "flutter_localizations", "flutter_test", "flutter_web_plugins",
+    "sky_engine", "_engine", "core", "async", "collection", "convert", "typed_data",
+    "math", "io", "isolate", "ffi", "developer", "js", "js_util", "mirrors",
+})
+
+
+def emit_pubspec(asm_root: str, dest_root: str, app_packages: List[str],
+                 log=lambda s: None) -> Optional[str]:
+    """Write a best-effort pubspec.recovered.yaml: the app's dependency names,
+    recovered from the packages compiled into the snapshot. Versions are not in
+    the build, so they are omitted rather than invented."""
+    if not os.path.isdir(asm_root):
+        return None
+    present = sorted(d for d in os.listdir(asm_root)
+                     if os.path.isdir(os.path.join(asm_root, d)))
+    app = set(app_packages or [])
+    deps = [d for d in present if d not in _SDK_PACKAGES and d not in app
+            and not d.startswith((".", "_"))]
+    app_name = (app_packages or ["app"])[0]
+
+    lines = [
+        "# RECOVERED by flutter_decompile -- dependency NAMES only.",
+        "#",
+        "# These are the packages compiled into the release snapshot. The names",
+        "# are real; the version constraints the author wrote were not kept in",
+        "# the build, so they are intentionally omitted rather than guessed.",
+        "# The list may include transitive dependencies the app did not name",
+        "# directly, and cannot include a dependency the tree-shaker dropped.",
+        "",
+        "name: %s" % app_name,
+        "",
+        "environment:",
+        "  sdk: '>=3.0.0 <4.0.0'   # placeholder; the real constraint is not recoverable",
+        "",
+        "dependencies:",
+        "  flutter:",
+        "    sdk: flutter",
+    ]
+    for d in deps:
+        lines.append("  %s: any   # version not recoverable" % d)
+    lines.append("")
+
+    dest = os.path.join(dest_root, "pubspec.recovered.yaml")
+    os.makedirs(dest_root, exist_ok=True)
+    with open(dest, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+    log("[emit] recovered %d dependency name(s) -> %s" % (len(deps), dest))
+    return dest
 
 
 def emit_tree(prog: pa.Program, dest_root: str,
               only: str = "*",
+              opts: Optional[EmitOptions] = None,
               log=lambda s: None) -> List[str]:
     """Write one .dart per library under ``dest_root``. Returns the paths."""
     from .cli import _skeleton_match, _url_to_path
 
     pat = "" if only in ("*", "", None) else only
     written: List[str] = []
+    failed = 0
     for lib in prog.libraries:
         if not _skeleton_match(pat, lib.url):
             continue
         dest = os.path.join(dest_root, _url_to_path(lib.url))
+        # One malformed library must not sink the whole tree: reconstructing
+        # 266 files and losing all of them because the 41st tripped on some
+        # disassembly shape we did not foresee is the wrong failure mode. Log
+        # it, write a stub that says so, and keep going.
+        try:
+            text = render_library(lib, opts)
+        except Exception as e:  # noqa: BLE001 -- isolate one file's failure
+            failed += 1
+            log("[emit] WARNING: could not reconstruct %s: %s" % (lib.url, e))
+            text = ("%s\n\n// library: %s\n// RECONSTRUCTION FAILED for this "
+                    "file: %s: %s\n// The other files are unaffected.\n"
+                    % ("\n".join(_HEADER), lib.url, type(e).__name__, e))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "w", encoding="utf-8") as fh:
-            fh.write(render_library(lib))
+            fh.write(text)
         written.append(dest)
-    log("[emit] %d reconstructed .dart file(s) -> %s" % (len(written), dest_root))
+    log("[emit] %d reconstructed .dart file(s) -> %s%s"
+        % (len(written), dest_root,
+           (" (%d could not be fully reconstructed)" % failed) if failed else ""))
     return written

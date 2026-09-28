@@ -732,6 +732,7 @@ def _run(args, ap) -> int:
     # manifest) so the output is a restored project, not just its code. Each
     # part is labelled for exactly how honestly it came back.
     restored_md = None
+    app_facts: dict = {}
     if not adopting and args.decompile.lower().endswith((".apk", ".aab", ".zip")):
         progress.stage("Restoring the rest of the APK (assets, resources, libs)")
         try:
@@ -742,11 +743,20 @@ def _run(args, ap) -> int:
                           if f.endswith(".dart"))
                       if os.path.isdir(dart_dir) else 0)
             restored_md = fd_restore.write_manifest(out, res, n_dart, dart_dir)
+            app_facts = res.manifest_facts
         except (OSError, zipfile.BadZipFile) as e:
             _say(f"  note: could not fully restore the APK contents: {e}")
         progress.done()
 
     print(f"\nFinished in {progress.total()}.")
+    if app_facts:
+        ident = app_facts.get("package", "?")
+        if app_facts.get("versionName"):
+            ident += f"  v{app_facts['versionName']}"
+        perms = app_facts.get("permissions") or []
+        if perms:
+            ident += f"  ({len(perms)} permissions)"
+        print(f"\n  app:        {ident}")
     # Printed by looking, not by assuming. A path in this list that does not
     # exist is worse than no line at all: it sends people hunting for a file
     # that was never written.

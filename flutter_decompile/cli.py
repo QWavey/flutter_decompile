@@ -106,6 +106,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="write a full reconstructed .dart tree (bodies "
                           "included) under -o/dart/. Honours --skeleton's GLOB "
                           "as a filter, --packages, and --infer-fields.")
+    rec.add_argument("--keep-asm", action="store_true",
+                     help="in emitted bodies, keep the byte-for-byte machine "
+                          "trace (frame setup, register copies, spills) instead "
+                          "of dropping the pure-bookkeeping lines")
 
     rep = ap.add_argument_group("reporting")
     rep.add_argument("--report", choices=("json", "md", "both", "none"), default="both")
@@ -299,9 +303,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         from . import reconstruct
         dart_root = os.path.join(out_root, "dart")
         only = "*" if not args.skeleton else args.skeleton
-        written = reconstruct.emit_tree(prog, dart_root, only=only,
+        opts = reconstruct.EmitOptions(keep_asm=args.keep_asm)
+        written = reconstruct.emit_tree(prog, dart_root, only=only, opts=opts,
                                         log=lambda s: log(s, 0))
-        report["emit"] = {"files": len(written), "dart_root": dart_root}
+        app_pkgs = packages or guess_app_packages(asm_root)
+        pubspec = reconstruct.emit_pubspec(asm_root, dart_root, app_pkgs,
+                                           log=lambda s: log(s, 0))
+        report["emit"] = {"files": len(written), "dart_root": dart_root,
+                          "pubspec": pubspec}
         print("reconstructed %d .dart file(s) -> %s" % (len(written), dart_root))
 
     if args.strict and cov["unparsed_lines"] > 0:

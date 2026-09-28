@@ -101,21 +101,39 @@ It restores the **whole app**, not just its code:
 
 ```
 <out>/
-  dart/            reconstructed Dart source tree (bodies included)
-  apk_contents/    everything else in the APK, extracted verbatim:
-                     the Flutter asset bundle (images, fonts, shaders, data),
-                     Android resources, native .so libraries, the manifest
-  skeletons/       signatures-only listing
-  RESTORED.md      a manifest saying, per part, how honestly it came back
-  report.md        parse/coverage report
+  dart/
+    lib/...                      reconstructed Dart source tree (bodies included)
+    pubspec.recovered.yaml       the app's dependency names, recovered
+  apk_contents/                  everything else in the APK, extracted verbatim:
+                                   the Flutter asset bundle (images, fonts,
+                                   shaders, data), Android resources, native
+                                   .so libraries, the manifest
+    AndroidManifest.decoded.xml  the binary manifest, decoded back to text
+  skeletons/                     signatures-only listing
+  RESTORED.md                    per-part honesty manifest + recovered app identity
+  report.md                      parse/coverage report
 ```
 
 Everything under `apk_contents/` is **RECOVERED** — the real bytes from the
 archive. The Dart folder and file names are **recovered from the snapshot's
 library URLs**; only Dart *bodies* are reconstructed and only field/local names
-are holes. `RESTORED.md` labels every part, and a couple of things
-(`AndroidManifest.xml` is binary AXML, `.dex` files are plugin Java/Kotlin) are
-handed back verbatim rather than pretended-decoded.
+are holes. `RESTORED.md` labels every part.
+
+Two things are decoded rather than left binary:
+
+- **`AndroidManifest.xml`** is Android binary XML — it's decoded back to readable
+  text (`AndroidManifest.decoded.xml`), and its headline facts (package,
+  version, permissions) are pulled into `RESTORED.md` and the run summary.
+- **`pubspec.recovered.yaml`** lists the packages compiled into the snapshot.
+  The dependency *names* are real; version constraints weren't kept in the build,
+  so they're omitted rather than guessed.
+
+`.dex` files (plugin Java/Kotlin, not your Dart) and `resources.arsc` are handed
+back verbatim rather than pretended-decoded.
+
+By default the reconstructed bodies drop pure machine bookkeeping (frame setup,
+register copies, stack spills) so the real operations aren't buried; `--keep-asm`
+keeps the byte-for-byte trace.
 
 ### How long it takes
 

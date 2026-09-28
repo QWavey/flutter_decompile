@@ -30,9 +30,10 @@ from __future__ import annotations
 import os
 import posixpath
 import shutil
+import struct
 import zipfile
 from dataclasses import dataclass, field as dc_field
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 # What each top-level area of an APK is, and how honestly we can hand it back.
@@ -51,6 +52,8 @@ class RestoreResult:
     root: str             # the restored project root
     items: List[Item] = dc_field(default_factory=list)
     skipped: int = 0
+    manifest_facts: Dict[str, Any] = dc_field(default_factory=dict)
+    manifest_decoded: bool = False
 
     def by_category(self) -> Dict[str, List[Item]]:
         out: Dict[str, List[Item]] = {}
@@ -115,9 +118,41 @@ def extract_all(apk_path: str, dest_root: str,
             category, status = _classify(arc)
             result.items.append(Item(arc, dest, category, status, info.file_size))
 
+            # The manifest is binary AXML, but it IS the real manifest -- decode
+            # it back to text next to the raw file. That is recovery, so its
+            # status is upgraded from BINARY once it round-trips.
+            if category == "manifest":
+                _decode_manifest(dest, result, log)
+
     log("[restore] extracted %d file(s) from the APK -> %s"
         % (len(result.items), contents))
     return result
+
+
+def _decode_manifest(raw_path: str, result: RestoreResult, log) -> None:
+    from . import axml
+    try:
+        with open(raw_path, "rb") as fh:
+            xml = axml.decode(fh.read())
+    except (OSError, ValueError, struct.error, IndexError) as e:
+        # AxmlError is a ValueError; struct/index errors mean a shape we did not
+        # expect. Either way, leave the raw file and move on -- never crash the
+        # whole restore over one file we could not decode.
+        log("[restore] AndroidManifest.xml left as binary AXML (%s)" % e)
+        return
+    decoded = os.path.splitext(raw_path)[0] + ".decoded.xml"
+    try:
+        with open(decoded, "w", encoding="utf-8") as fh:
+            fh.write(xml)
+    except OSError as e:
+        log("[restore] could not write decoded manifest: %s" % e)
+        return
+    result.manifest_decoded = True
+    result.manifest_facts = axml.summarize(xml)
+    for it in result.items:
+        if it.category == "manifest":
+            it.status = "RECOVERED"     # decoded to text; no longer opaque
+    log("[restore] decoded AndroidManifest.xml -> %s" % decoded)
 
 
 _CATEGORY_TITLE = {
@@ -149,6 +184,27 @@ def write_manifest(out_dir: str, restore: RestoreResult,
     L.append("")
     L.append("Rebuilt from `%s`." % os.path.basename(restore.apk))
     L.append("")
+
+    facts = restore.manifest_facts
+    if facts:
+        L.append("## App identity")
+        L.append("")
+        L.append("Decoded from `AndroidManifest.xml` (binary AXML → text):")
+        L.append("")
+        if facts.get("package"):
+            L.append("- **package**: `%s`" % facts["package"])
+        ver = facts.get("versionName")
+        code = facts.get("versionCode")
+        if ver or code:
+            L.append("- **version**: %s%s"
+                     % (ver or "?", (" (code %s)" % code) if code else ""))
+        perms = facts.get("permissions") or []
+        if perms:
+            L.append("- **permissions** (%d): %s"
+                     % (len(perms), ", ".join("`%s`" % p.rsplit(".", 1)[-1]
+                                              for p in perms)))
+        L.append("")
+
     L.append("| Part | Where | Status |")
     L.append("|---|---|---|")
     dart_rel = os.path.relpath(dart_root, out_dir) if dart_files else "-"
@@ -170,7 +226,11 @@ def write_manifest(out_dir: str, restore: RestoreResult,
         title = _CATEGORY_TITLE.get(cat, cat)
         note = ""
         if cat == "manifest":
-            note = " — extracted verbatim as **binary AXML**; not decoded to text"
+            if restore.manifest_decoded:
+                note = (" — binary AXML, **decoded back to text** next to it as "
+                        "`AndroidManifest.decoded.xml`")
+            else:
+                note = " — extracted verbatim as **binary AXML**; not decoded to text"
         elif cat == "resources":
             note = " — `res/` files verbatim; `resources.arsc` is a binary table"
         elif cat == "dex":

@@ -429,6 +429,38 @@ def test_emit_is_advertised_in_the_help():
     assert "reconstructed .dart tree" in help_text
 
 
+def test_emit_also_writes_a_recovered_pubspec(tmp_path, blutter_out):
+    out = os.path.join(str(tmp_path), "out")
+    cli.main(["--blutter-out", blutter_out, "-o", out, "--report", "none",
+              "--emit", "--include-deps"])
+    pubspec = os.path.join(out, "dart", "pubspec.recovered.yaml")
+    assert os.path.isfile(pubspec)
+    text = open(pubspec, encoding="utf-8").read()
+    # flutter is an SDK dep, not a pub line; the app package is not its own dep.
+    assert "dependencies:" in text
+    assert "not recoverable" in text          # honest about missing versions
+
+
+def test_keep_asm_never_produces_fewer_lines_than_the_filtered_default(tmp_path, blutter_out):
+    base = os.path.join(str(tmp_path), "a")
+    full = os.path.join(str(tmp_path), "b")
+    cli.main(["--blutter-out", blutter_out, "-o", base, "--report", "none", "--emit"])
+    cli.main(["--blutter-out", blutter_out, "-o", full, "--report", "none",
+              "--emit", "--keep-asm"])
+
+    def total_lines(root):
+        n = 0
+        for d, _dirs, files in os.walk(os.path.join(root, "dart")):
+            for f in files:
+                if f.endswith(".dart"):
+                    with open(os.path.join(d, f), encoding="utf-8") as fh:
+                        n += len(fh.readlines())
+        return n
+
+    # keep-asm keeps the bookkeeping the default drops, so it is never smaller.
+    assert total_lines(full) >= total_lines(base)
+
+
 def test_the_unimplemented_stages_are_declared_in_the_package():
     from flutter_decompile import IMPLEMENTED_STAGES, UNIMPLEMENTED_STAGES
     assert "verify" in UNIMPLEMENTED_STAGES

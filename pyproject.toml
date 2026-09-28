@@ -168,6 +168,12 @@ ban-relative-imports = "parents"
 # that mypy cannot see through, and they are already executed on every run,
 # which is a stronger check than annotating them.
 files = ["flutter_decompile", "main.py"]
+# gui.py is the only module that imports a third-party library (PyQt6 +
+# PyQt6-Fluent-Widgets, the optional [gui] extra). CI installs [dev], not
+# [gui], so those imports are absent there; type-checking a Qt UI against
+# absent stubs proves nothing and would wobble between machines. It is excluded
+# here and exercised by an offscreen construction test instead.
+exclude = ["flutter_decompile/gui\\.py"]
 # Pinned rather than following the interpreter, so all nine matrix jobs agree
 # on the answer. 3.10 is the floor in requires-python.
 python_version = "3.10"
