@@ -479,6 +479,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--blutter", metavar="PATH", help="path to an existing blutter.py")
     ap.add_argument("--no-download", action="store_true",
                     help="never fetch anything; fail instead")
+    ap.add_argument("--try-unsupported", action="store_true",
+                    help="build even when the Dart version looks newer than "
+                         "Blutter supports (runs the full VM build; likely "
+                         "fails at Blutter's own compile)")
     ap.add_argument("--yes", "-y", action="store_true",
                     help="answer every prompt yes: do not pause before the "
                          "long part, and write into an output directory that "
@@ -606,18 +610,28 @@ def _run(args, ap) -> int:
         for warning in info.warnings:
             print(f"  warning: {warning}")
 
-        # Fail fast on a snapshot layout Blutter cannot load, BEFORE the
-        # 20-60 minute Dart VM build. Blutter's ElfHelper hard-requires the
-        # four split snapshot symbols; recent Dart emits a single combined
-        # snapshot instead, and no VM build changes that.
+        # Warn up front, BEFORE the 20-60 minute Dart VM build, when this app
+        # is beyond current Blutter's support. The VM will build; Blutter's own
+        # build then fails because its stub resolution tracks Dart's VM
+        # internals per release. Better to say so now than after an hour.
         if acq.libapp:
             layout = apk_mod.snapshot_symbol_layout(acq.libapp)
-            if layout == "combined":
-                print("  note:     this app uses Dart's combined single-snapshot "
-                      "layout\n            (_kDartSnapshotData / _kDartSnapshotText). "
-                      "flutter_decompile\n            patches Blutter to load it "
-                      "-- this path is newer, so if the\n            disassembly "
-                      "step fails, that is why.")
+            warn = apk_mod.blutter_support_warning(layout, dart_version)
+            if warn and not args.try_unsupported:
+                raise Abort(
+                    "Likely unsupported Dart version -- stopping before the "
+                    "20-60 min build.",
+                    warn,
+                    "Pass --try-unsupported to build anyway (it will run the "
+                    "full Dart VM build\nand then most likely fail at Blutter's "
+                    "own compile step).",
+                    code=EXIT_FAILED)
+            if warn:
+                print("\n  !! LIKELY UNSUPPORTED DART VERSION (continuing "
+                      "because --try-unsupported was given)")
+                for line in warn.splitlines():
+                    print("     " + line if line else "")
+                print()
             elif layout == "unknown":
                 print("  warning: could not find Dart snapshot symbols in "
                       "libapp.so; it may be\n           stripped or packed, and "

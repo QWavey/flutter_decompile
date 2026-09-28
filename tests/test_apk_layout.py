@@ -35,3 +35,30 @@ def test_unknown_when_no_dart_symbols(tmp_path):
 
 def test_missing_file_is_unknown_not_an_error():
     assert apk.snapshot_symbol_layout("/no/such/libapp.so") == "unknown"
+
+
+# --- Blutter support detection ------------------------------------------- #
+
+def test_dart_version_tuple_parses_common_forms():
+    assert apk.dart_version_tuple("3.13.2") == (3, 13, 2)
+    assert apk.dart_version_tuple("3.8") == (3, 8, 0)
+    assert apk.dart_version_tuple("unknown") is None
+    assert apk.dart_version_tuple(None) is None
+
+
+def test_combined_layout_triggers_the_support_warning():
+    msg = apk.blutter_support_warning("combined", "3.13.2")
+    assert msg is not None and "3.13.2" in msg
+
+
+def test_new_dart_version_triggers_even_with_split_layout():
+    assert apk.blutter_support_warning("split", "3.99.0") is not None
+
+
+def test_supported_version_and_split_layout_is_fine():
+    assert apk.blutter_support_warning("split", "3.5.0") is None
+
+
+def test_unknown_version_split_layout_is_not_flagged():
+    # No positive signal either way -> do not cry wolf.
+    assert apk.blutter_support_warning("split", None) is None

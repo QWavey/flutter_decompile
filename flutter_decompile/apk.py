@@ -345,6 +345,48 @@ def snapshot_symbol_layout(libapp: str) -> str:
     return "unknown"
 
 
+def dart_version_tuple(version: Optional[str]) -> Optional[Tuple[int, ...]]:
+    """(3, 13, 2) from "3.13.2", or None if it does not parse."""
+    if not version:
+        return None
+    m = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?", version)
+    if not m:
+        return None
+    return tuple(int(x) for x in m.groups(default="0"))
+
+
+# The newest Dart whose VM internals (ObjectStore stub layout, embedder API,
+# snapshot symbol scheme) current Blutter is written against. Apps built with a
+# newer Dart compile the Dart VM fine but fail to build Blutter itself, because
+# Blutter's stub resolution and DartLoader track these internals per release.
+# Bump this only alongside verifying Blutter actually supports the new version.
+BLUTTER_MAX_DART = (3, 8)
+
+
+def blutter_support_warning(layout: str,
+                            dart_version: Optional[str]) -> Optional[str]:
+    """A human warning when this app is likely beyond Blutter's support, or
+    None when it looks fine. Keyed on the combined-snapshot layout (the reliable
+    on-disk signal) and, when known, the Dart version."""
+    ver = dart_version_tuple(dart_version)
+    newer = ver is not None and ver > BLUTTER_MAX_DART
+    if layout == "combined" or newer:
+        vtxt = dart_version or "this version"
+        return (
+            "Dart %s uses the newer VM layout (combined snapshot, and the "
+            "ObjectStore\nstub reorganization) that current Blutter is NOT "
+            "written for. flutter_decompile\npatches the snapshot loader, ICU "
+            "and the MSVC build, and the Dart VM itself\nwill compile -- but "
+            "Blutter's own build then fails, because its stub resolution\n"
+            "tracks Dart's internal layout release by release. That is upstream "
+            "Blutter work.\n\n"
+            "The long Dart VM build (20-60 min) will run and then Blutter will "
+            "likely fail to\ncompile. To get output today, build the app with an "
+            "older, stable Flutter\n(Dart <= %d.%d) and run this again."
+            % (vtxt, BLUTTER_MAX_DART[0], BLUTTER_MAX_DART[1]))
+    return None
+
+
 def snapshot_hashes_from_libapp(libapp: str, limit: int = 8) -> List[Dict[str, Any]]:
     """Signal 1 -- BEST EFFORT.
 

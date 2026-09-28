@@ -135,6 +135,30 @@ By default the reconstructed bodies drop pure machine bookkeeping (frame setup,
 register copies, stack spills) so the real operations aren't buried; `--keep-asm`
 keeps the byte-for-byte trace.
 
+### Newer Dart versions
+
+Blutter's disassembler tracks Dart's VM internals (the ObjectStore stub layout,
+the embedder API, the snapshot symbol scheme) **release by release**, so an app
+built with a Dart newer than Blutter supports cannot be processed — the Dart VM
+compiles, but Blutter's own build then fails. flutter_decompile already patches
+the parts it can (the combined single-snapshot ELF loader, ICU/Capstone fetch,
+the MSVC `__VA_OPT__` build), but the stub-resolution rework is upstream Blutter
+work and can't be faked without producing wrong output.
+
+So the tool **detects this up front and stops in seconds** rather than after the
+20–60 min VM build:
+
+```
+!! LIKELY UNSUPPORTED DART VERSION
+Dart 3.13.2 uses the newer VM layout ... build the app with an older, stable
+Flutter (Dart <= 3.8) and run this again.
+```
+
+To get output today, build the app with an older stable Flutter. To attempt the
+build anyway (it will run the full VM build and most likely fail at Blutter's
+compile step), pass `--try-unsupported`. The supported ceiling lives in
+`apk.BLUTTER_MAX_DART` and moves up when Blutter gains support for a new release.
+
 ### How long it takes
 
 It prints a plan with timings before anything expensive, and asks before the long
