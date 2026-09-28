@@ -316,6 +316,35 @@ class VersionInfo:
         }
 
 
+def snapshot_symbol_layout(libapp: str) -> str:
+    """Which Dart AOT snapshot symbol layout this libapp.so uses.
+
+    Returns:
+      "split"    -- the classic four symbols (_kDartVmSnapshotData,
+                    _kDartVmSnapshotInstructions, _kDartIsolateSnapshotData,
+                    _kDartIsolateSnapshotInstructions). Blutter supports this.
+      "combined" -- the newer single-snapshot layout (_kDartSnapshotData +
+                    _kDartSnapshotText) that recent Dart emits. Blutter's
+                    ElfHelper hard-requires the four split symbols and cannot
+                    load this.
+      "unknown"  -- neither set of names was found (stripped, packed, or not a
+                    Dart AOT library).
+
+    A cheap byte scan on purpose: the tool is stdlib-only, the names are ASCII
+    and interned in .dynstr, and we only need to know which family is present.
+    """
+    try:
+        with open(libapp, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return "unknown"
+    if b"_kDartVmSnapshotData" in data:
+        return "split"
+    if b"_kDartSnapshotData" in data:
+        return "combined"
+    return "unknown"
+
+
 def snapshot_hashes_from_libapp(libapp: str, limit: int = 8) -> List[Dict[str, Any]]:
     """Signal 1 -- BEST EFFORT.
 

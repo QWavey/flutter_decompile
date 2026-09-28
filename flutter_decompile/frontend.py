@@ -605,6 +605,33 @@ def _run(args, ap) -> int:
         print(f"  ABI:      {args.abi}")
         for warning in info.warnings:
             print(f"  warning: {warning}")
+
+        # Fail fast on a snapshot layout Blutter cannot load, BEFORE the
+        # 20-60 minute Dart VM build. Blutter's ElfHelper hard-requires the
+        # four split snapshot symbols; recent Dart emits a single combined
+        # snapshot instead, and no VM build changes that.
+        if acq.libapp:
+            layout = apk_mod.snapshot_symbol_layout(acq.libapp)
+            if layout == "combined":
+                raise Abort(
+                    "This app uses Dart's newer combined-snapshot layout, "
+                    "which Blutter cannot load.",
+                    "Its libapp.so exports _kDartSnapshotData / _kDartSnapshotText "
+                    "(one merged\nsnapshot). Blutter -- the disassembler this "
+                    "tool drives -- hard-requires the\nolder four-symbol split "
+                    "(_kDartVmSnapshotData, _kDartVmSnapshotInstructions,\n"
+                    "_kDartIsolateSnapshotData, _kDartIsolateSnapshotInstructions) "
+                    "and throws\nwithout them. This is a Blutter limitation, not "
+                    "a missing tool on your\nmachine, and the Dart VM build would "
+                    "not fix it -- so this stops now\nrather than after an hour.",
+                    "Apps built with an older Dart (the four-symbol layout) work. "
+                    "Support for\nthe combined layout has to land in Blutter's "
+                    "ElfHelper/DartLoader first.",
+                    code=EXIT_FAILED)
+            if layout == "unknown":
+                print("  warning: could not find Dart snapshot symbols in "
+                      "libapp.so; it may be\n           stripped or packed, and "
+                      "Blutter may fail to load it.")
     progress.done()
     done.add("acquire")
     if not adopting:
@@ -802,3 +829,7 @@ def _abi_hint(message: str, abi: str) -> str:
     return (f"This APK does not ship {abi}. Re-run with --abi set to one of "
             "the ABIs listed\nabove (arm64-v8a is the only one this tool "
             "supports fully).")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
