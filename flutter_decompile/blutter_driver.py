@@ -45,6 +45,7 @@ THE TWO BREAKAGES
 
 from __future__ import annotations
 
+import collections
 import os
 import re
 import shutil
@@ -572,6 +573,43 @@ def dartvm_cache_dir(dart_version: str, snapshot_hash: str) -> str:
     return os.path.join(base, "%s_%s" % (dart_version, snapshot_hash))
 
 
+def _diagnose_blutter_failure(output: str, dart_version: Optional[str]) -> Optional[str]:
+    """Turn a wall of build errors into one accurate sentence about the cause.
+
+    The important case: Blutter's C++ is written against a specific Dart
+    embedder / VM-internal API and is updated per Dart release. A Dart version
+    newer than Blutter supports fails to COMPILE Blutter -- distinct from a
+    missing toolchain -- and we should say so instead of pointing at --check.
+    """
+    ver = dart_version or "this Dart version"
+    # Dart embedder API drift: fields/renames in Blutter's own source.
+    if ("Dart_InitializeParams" in output
+            or "stub_code_list" in output
+            or "OBJECT_STORE_STUB_CODE_LIST" in output
+            or ("is not a member" in output and "Dart" in output)
+            or ("kein Member" in output and "Dart" in output)):
+        return (
+            "This is Blutter failing to COMPILE against Dart %s, not a problem "
+            "with your\nmachine. Blutter's C++ tracks Dart's embedder / VM "
+            "internal API, which changed\nin this version (e.g. "
+            "Dart_InitializeParams lost its snapshot fields, and the\nstub-code "
+            "list macros changed shape). Blutter has to be ported to Dart %s "
+            "for\nit to build -- that is upstream work, version by version.\n\n"
+            "What works today: build the app with an older, stable Flutter/Dart "
+            "whose\nversion Blutter already supports, and run this again. The "
+            "full build log is at\nblutter_build.log in the output directory."
+            % (ver, ver))
+    if "__VA_OPT__" in output:
+        return ("The Dart VM build hit a __VA_OPT__ error. That is normally "
+                "patched with\n/Zc:preprocessor; if you see this, the patch did "
+                "not apply -- please report it.")
+    if "ICU" in output and "find" in output.lower():
+        return ("The Dart VM build could not find ICU. It is normally fetched "
+                "automatically;\nif you see this, delete the blutter clone and "
+                "let it re-set-up.")
+    return None
+
+
 def run_blutter(libapp: str,
                 out_dir: str,
                 blutter_py: Optional[str] = None,
@@ -632,19 +670,35 @@ def run_blutter(libapp: str,
         run.notes.append("dartvm build cache: %s" % cache)
 
     log("[blutter] %s" % " ".join(cmd))
+    # Stream Blutter's output live (so a long build is visible) AND capture it,
+    # so a failure can be diagnosed instead of reported as a bare exit code.
+    build_log = os.path.join(out_dir, "blutter_build.log")
+    tail: "collections.deque[str]" = collections.deque(maxlen=400)
     try:
-        proc = subprocess.run(cmd, cwd=root, env=env, timeout=timeout)
-        run.returncode = proc.returncode
+        with open(build_log, "w", encoding="utf-8", errors="replace") as lf:
+            proc = subprocess.Popen(cmd, cwd=root, env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    encoding="utf-8", errors="replace", bufsize=1)
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                lf.write(line)
+                tail.append(line)
+            run.returncode = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
+        proc.kill()
         raise BlutterError("Blutter timed out after %ss" % timeout)
     except OSError as e:
         raise BlutterError("failed to launch Blutter: %s" % e)
 
     run.missing = validate_output(out_dir)
     if run.returncode != 0:
+        diag = _diagnose_blutter_failure("".join(tail), dart_version)
         raise BlutterError(
-            "Blutter exited with code %s. Missing outputs: %s"
-            % (run.returncode, ", ".join(run.missing) or "none"))
+            "Blutter exited with code %s. Missing outputs: %s%s"
+            % (run.returncode, ", ".join(run.missing) or "none",
+               ("\n\n" + diag) if diag else ""))
     if run.missing:
         raise BlutterError(
             "Blutter reported success but did not produce: %s"
