@@ -613,22 +613,12 @@ def _run(args, ap) -> int:
         if acq.libapp:
             layout = apk_mod.snapshot_symbol_layout(acq.libapp)
             if layout == "combined":
-                raise Abort(
-                    "This app uses Dart's newer combined-snapshot layout, "
-                    "which Blutter cannot load.",
-                    "Its libapp.so exports _kDartSnapshotData / _kDartSnapshotText "
-                    "(one merged\nsnapshot). Blutter -- the disassembler this "
-                    "tool drives -- hard-requires the\nolder four-symbol split "
-                    "(_kDartVmSnapshotData, _kDartVmSnapshotInstructions,\n"
-                    "_kDartIsolateSnapshotData, _kDartIsolateSnapshotInstructions) "
-                    "and throws\nwithout them. This is a Blutter limitation, not "
-                    "a missing tool on your\nmachine, and the Dart VM build would "
-                    "not fix it -- so this stops now\nrather than after an hour.",
-                    "Apps built with an older Dart (the four-symbol layout) work. "
-                    "Support for\nthe combined layout has to land in Blutter's "
-                    "ElfHelper/DartLoader first.",
-                    code=EXIT_FAILED)
-            if layout == "unknown":
+                print("  note:     this app uses Dart's combined single-snapshot "
+                      "layout\n            (_kDartSnapshotData / _kDartSnapshotText). "
+                      "flutter_decompile\n            patches Blutter to load it "
+                      "-- this path is newer, so if the\n            disassembly "
+                      "step fails, that is why.")
+            elif layout == "unknown":
                 print("  warning: could not find Dart snapshot symbols in "
                       "libapp.so; it may be\n           stripped or packed, and "
                       "Blutter may fail to load it.")

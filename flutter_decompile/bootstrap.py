@@ -395,14 +395,18 @@ def prepare_blutter(blutter_py: str, log=print) -> int:
     root = bd.blutter_root(blutter_py)
     try:
         patches = bd.patch_cmake_compat(root)
+        snap = bd.patch_combined_snapshot(root)
     except OSError as e:
         # The patcher reads defensively but has to write; a checkout on a
         # read-only mount or one owned by another user fails here.
         raise RuntimeError(
-            f"Could not apply the CMake compatibility fixes to {root}: {e}\n"
+            f"Could not apply the Blutter compatibility fixes to {root}: {e}\n"
             "Blutter's build needs those files edited, so the checkout has to "
             "be writable.\nUse a copy you own, or pass --blutter pointing at "
             "one.") from e
     if patches:
         log(f"[blutter] applied {len(patches)} build fix(es) for a modern CMake")
-    return len(patches)
+    if snap:
+        log(f"[blutter] applied {len(snap)} patch(es) for the combined-snapshot "
+            "ELF layout")
+    return len(patches) + len(snap)

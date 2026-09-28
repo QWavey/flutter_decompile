@@ -208,6 +208,122 @@ def revert_cmake_patches(root: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Breakage (3): the combined / single-snapshot ELF layout
+#
+# Recent Dart emits an app snapshot with three symbols -- _kDartSnapshotData,
+# _kDartSnapshotText, _kDartSnapshotBuildId -- instead of the classic four
+# (_kDartVmSnapshotData, _kDartVmSnapshotInstructions, _kDartIsolateSnapshotData,
+# _kDartIsolateSnapshotInstructions). Blutter's ElfHelper only knows the four
+# and throws on the three, so a current `flutter build apk` cannot be loaded.
+#
+# The fix maps the single snapshot onto the isolate slots and leaves the VM
+# snapshot null: Dart_Initialize with a null VM snapshot falls back to the one
+# built into libdart, and the isolate is created from _kDartSnapshotData /
+# _kDartSnapshotText -- which is exactly how Dart's own embedder loads a single
+# combined snapshot. Purely additive: the four-symbol path is untouched.
+# --------------------------------------------------------------------------- #
+
+# (before, after) pairs applied to ElfHelper.cpp, in order. Each `before` is a
+# verbatim slice of the upstream file; if it is absent the patch is skipped, so
+# an upstream that already handles this (or a refactor that moves the code) is
+# a no-op rather than a corruption.
+_ELF_PATCHES = [
+    (
+        "\t\t\tif (std::search(strtab, last, s_first, s_last) != last) {\n"
+        "\t\t\t\t// found it\n"
+        "\t\t\t\tdynstr = strtab;\n",
+        "\t\t\tstatic const char fd_combined[] = \"_kDartSnapshotData\";\n"
+        "\t\t\tif (std::search(strtab, last, s_first, s_last) != last ||\n"
+        "\t\t\t    std::search(strtab, last, fd_combined, fd_combined + sizeof(fd_combined) - 1) != last) {\n"
+        "\t\t\t\t// found it (split or combined snapshot layout)\n"
+        "\t\t\t\tdynstr = strtab;\n",
+    ),
+    (
+        "\t\telse if (strcmp(name, kIsolateSnapshotInstructionsAsmSymbol) == 0) {\n"
+        "\t\t\tisolate_snapshot_instructions = elf + dynsym->value;\n"
+        "\t\t}\n\t}\n",
+        "\t\telse if (strcmp(name, kIsolateSnapshotInstructionsAsmSymbol) == 0) {\n"
+        "\t\t\tisolate_snapshot_instructions = elf + dynsym->value;\n"
+        "\t\t}\n"
+        "\t\telse if (strcmp(name, \"_kDartSnapshotData\") == 0) {\n"
+        "\t\t\tisolate_snapshot_data = elf + dynsym->value;\n"
+        "\t\t}\n"
+        "\t\telse if (strcmp(name, \"_kDartSnapshotText\") == 0) {\n"
+        "\t\t\tisolate_snapshot_instructions = elf + dynsym->value;\n"
+        "\t\t}\n\t}\n",
+    ),
+    (
+        "\tif (vm_snapshot_data == nullptr)\n"
+        "\t\tthrow std::invalid_argument(\"ELF: Cannot find Dart VM Snapshot Data\");\n"
+        "\tif (vm_snapshot_instructions == nullptr)\n"
+        "\t\tthrow std::invalid_argument(\"ELF: Cannot find Dart VM Snapshot Instructions\");\n"
+        "\tif (isolate_snapshot_data == nullptr)\n"
+        "\t\tthrow std::invalid_argument(\"ELF: Cannot find Dart Isolate Snapshot Data\");\n"
+        "\tif (isolate_snapshot_instructions == nullptr)\n"
+        "\t\tthrow std::invalid_argument(\"ELF: Cannot find Dart Isolate Snapshot Instructions\");\n",
+        "\t// flutter_decompile: a single combined snapshot has no separate VM\n"
+        "\t// snapshot; the VM then uses libdart's built-in one, so vm_* may be null.\n"
+        "\tif (isolate_snapshot_data == nullptr)\n"
+        "\t\tthrow std::invalid_argument(\"ELF: Cannot find Dart Isolate/App Snapshot Data\");\n"
+        "\tif (isolate_snapshot_instructions == nullptr)\n"
+        "\t\tthrow std::invalid_argument(\"ELF: Cannot find Dart Isolate/App Snapshot Instructions\");\n",
+    ),
+]
+
+# extract_dart_info.py reads the snapshot hash from _kDartVmSnapshotData; fall
+# back to the combined _kDartSnapshotData when the split symbol is absent.
+_EXTRACT_BEFORE = "        sym = dynsym.get_symbol_by_name('_kDartVmSnapshotData')[0]\n"
+_EXTRACT_AFTER = (
+    "        _syms = (dynsym.get_symbol_by_name('_kDartVmSnapshotData')\n"
+    "                 or dynsym.get_symbol_by_name('_kDartSnapshotData'))\n"
+    "        sym = _syms[0]\n"
+)
+
+
+def _apply_text_patch(path: str, edits, marker: str, dry_run: bool) -> List[Patch]:
+    """Apply (before, after) text edits to one file. Idempotent via ``marker``:
+    if it is already present the file is left alone. Missing ``before`` slices
+    are skipped, never forced."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return []
+    if marker in text:
+        return []                     # already patched
+    applied: List[Patch] = []
+    new = text
+    for before, after in edits:
+        if before in new:
+            new = new.replace(before, after, 1)
+            applied.append(Patch(path, 0, before.strip().split("\n")[0],
+                                 after.strip().split("\n")[0],
+                                 "support Dart's combined single-snapshot layout"))
+    if applied and not dry_run:
+        backup = path + ".fd-backup"
+        if not os.path.exists(backup):
+            shutil.copy2(path, backup)
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(new)
+    return applied
+
+
+def patch_combined_snapshot(root: str, dry_run: bool = False) -> List[Patch]:
+    """Teach Blutter to load Dart's combined (_kDartSnapshotData / ...Text)
+    snapshot layout. Idempotent; safe to run on an already-patched or
+    already-compatible checkout."""
+    patches: List[Patch] = []
+    elf = os.path.join(root, "blutter", "src", "ElfHelper.cpp")
+    if os.path.isfile(elf):
+        patches += _apply_text_patch(elf, _ELF_PATCHES, "_kDartSnapshotText", dry_run)
+    extract = os.path.join(root, "extract_dart_info.py")
+    if os.path.isfile(extract):
+        patches += _apply_text_patch(extract, [(_EXTRACT_BEFORE, _EXTRACT_AFTER)],
+                                     "_kDartSnapshotData", dry_run)
+    return patches
+
+
+# --------------------------------------------------------------------------- #
 # Breakage (2): MSVC environment
 # --------------------------------------------------------------------------- #
 
