@@ -21,6 +21,10 @@ import sys
 from typing import Dict, List, Optional, Tuple
 
 BLUTTER_URL = "https://github.com/worawit/blutter"
+# Pin to a reviewed commit so a future upstream change cannot silently run
+# unreviewed code on the user's machine.  Update this SHA after reviewing the
+# new commits and re-running the test suite.
+BLUTTER_PINNED_SHA = "4a60ac648bf448c5a7596437243bcd0b9376fdf0"
 
 # A clone that fetched but was killed part-way looks like a directory that
 # exists and has a .git in it, which is exactly the shape `git clone` refuses
@@ -323,9 +327,13 @@ def ensure_blutter(hint: Optional[str] = None,
     except (OSError, ValueError):
         pass
     try:
-        result = subprocess.run(["git", "clone", "--depth", "1",
+        result = subprocess.run(["git", "clone", "--no-checkout",
                                  BLUTTER_URL, target],
                                 timeout=CLONE_TIMEOUT_SECONDS)
+        if result.returncode == 0:
+            result = subprocess.run(["git", "-C", target, "checkout",
+                                     BLUTTER_PINNED_SHA],
+                                    timeout=60)
     except KeyboardInterrupt:
         _cleanup_partial_clone(target, log)
         raise
