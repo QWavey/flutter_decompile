@@ -44,10 +44,13 @@ __all__ = [
     "UNIMPLEMENTED_STAGES",
 ]
 
+# "emit" and "report" run through reconstruct.emit_tree and cli.render_report_md.
+# "infer" is not run by the CLI at all (infer.py is used only by the tests and
+# selftest), so it is listed as not implemented.
 IMPLEMENTED_STAGES = (
-    "acquire", "identify", "blutter", "parse", "link", "infer", "emit", "report",
+    "acquire", "identify", "blutter", "parse", "link", "emit", "report",
 )
-UNIMPLEMENTED_STAGES = ("parse_objs", "parse_pp", "verify")
+UNIMPLEMENTED_STAGES = ("infer", "parse_objs", "parse_pp", "verify")
 
 # Submodules are deliberately NOT imported here: the emitter half (ir/infer/
 # emit/report) must stay importable without pulling in the Blutter driver, and
