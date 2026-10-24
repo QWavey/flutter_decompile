@@ -11,6 +11,8 @@ Requires PyQt6 and PyQt6-Fluent-Widgets (``pip install "flutter_decompile[gui]"`
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import sys
 
 try:
@@ -173,7 +175,31 @@ class MainWindow(QWidget):
     def _stop(self) -> None:
         if self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning:
             self._append("\n[stopping — killing the pipeline]")
-            self.proc.kill()
+            self._kill_tree()
+
+    def _kill_tree(self) -> None:
+        """Stop the pipeline and everything it started.
+
+        QProcess.kill() reaches only the Python frontend. Blutter's cmake, ninja
+        and compiler children would keep building after Stop, so the whole tree
+        is killed first, then the frontend itself.
+        """
+        if self.proc is None:
+            return
+        pid = int(self.proc.processId() or 0)
+        if pid and sys.platform == "win32":
+            try:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
+                               capture_output=True, timeout=30)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        elif pid:
+            for child in _descendant_pids(pid):
+                try:
+                    os.kill(child, signal.SIGKILL)
+                except OSError:
+                    pass
+        self.proc.kill()
 
     def _set_running(self, running: bool) -> None:
         self.start_btn.setEnabled(not running)
@@ -215,9 +241,30 @@ class MainWindow(QWidget):
 
     def closeEvent(self, event) -> None:
         if self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning:
-            self.proc.kill()
+            self._kill_tree()
             self.proc.waitForFinished(2000)
         event.accept()
+
+
+def _descendant_pids(root_pid: int) -> list:
+    """Every PID below ``root_pid`` on POSIX, deepest first, from ``ps``."""
+    try:
+        out = subprocess.run(["ps", "-eo", "pid=,ppid="], capture_output=True,
+                             text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    children: dict = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            children.setdefault(int(parts[1]), []).append(int(parts[0]))
+    found: list = []
+    stack = [root_pid]
+    while stack:
+        for child in children.get(stack.pop(), []):
+            found.append(child)
+            stack.append(child)
+    return list(reversed(found))
 
 
 def main(argv=None) -> int:
