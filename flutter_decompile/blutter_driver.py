@@ -493,6 +493,12 @@ def msvc_env(arch: str = "x64") -> Tuple[Optional[Dict[str, str]], Optional[str]
     #
     # vcvars64.bat takes no architecture argument (it *is* the x64 one); only
     # vcvarsall.bat does.
+    # The path is written into a batch file, where a metacharacter would change
+    # what runs ('&' starts a second command, '%' is expanded). Refuse such a
+    # path rather than try to escape it.
+    if any(ch in vcvars for ch in '&|^%!"<>'):
+        return None, ("refusing to run %s: its path contains a character that "
+                      "cmd.exe treats specially" % vcvars)
     marker = "__FD_ENV_MARKER__"
     arch_arg = "" if os.path.basename(vcvars).lower() == "vcvars64.bat" else " " + arch
     fd, bat = tempfile.mkstemp(suffix=".bat", prefix="fd_vcvars_")
