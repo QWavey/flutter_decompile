@@ -273,6 +273,10 @@ def ensure_blutter(hint: Optional[str] = None,
 
     if os.path.isdir(target):
         gaps = missing_clone_parts(target)
+        # A cached clone is only trusted at the reviewed commit. One fetched
+        # before the pin existed sits at upstream HEAD and is replaced.
+        if not gaps and _checked_out_sha(target) != BLUTTER_PINNED_SHA:
+            gaps = [f"the reviewed commit {BLUTTER_PINNED_SHA[:12]}"]
         if not gaps:
             log(f"[blutter] using cached clone at {target}")
             return candidate
@@ -356,8 +360,30 @@ def ensure_blutter(hint: Optional[str] = None,
             "own error is printed just above.\n"
             f"{_network_advice(target)}")
 
+    # Verify the checkout landed on the reviewed commit before anything in it
+    # is executed (init_env_win.py below, the build later).
+    if _checked_out_sha(target) != BLUTTER_PINNED_SHA:
+        try:
+            _remove_tree(target)
+        except OSError:
+            pass
+        raise RuntimeError(
+            "The Blutter clone is not at the reviewed commit "
+            f"{BLUTTER_PINNED_SHA}, so it was deleted and not used.\n"
+            "Report this: the pinned commit may be missing upstream.")
+
     log("[blutter] cloned")
     return candidate
+
+
+def _checked_out_sha(target: str) -> Optional[str]:
+    """The commit HEAD points at in ``target``, or None if git cannot say."""
+    try:
+        r = subprocess.run(["git", "-C", target, "rev-parse", "HEAD"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
 
 
 def _cleanup_partial_clone(target: str, log=print) -> None:
@@ -407,8 +433,8 @@ def prepare_blutter(blutter_py: str, log=print) -> int:
     bd.ensure_windows_externals(root, log=log)
     try:
         patches = bd.patch_cmake_compat(root)
-        snap = bd.patch_combined_snapshot(root)
-        snap += bd.patch_msvc_preprocessor(root)
+        snap = bd.patch_combined_snapshot(root, log=log)
+        snap += bd.patch_msvc_preprocessor(root, log=log)
     except OSError as e:
         # The patcher reads defensively but has to write; a checkout on a
         # read-only mount or one owned by another user fails here.

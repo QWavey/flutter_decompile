@@ -83,22 +83,20 @@ class BlutterError(RuntimeError):
 # --------------------------------------------------------------------------- #
 
 def find_blutter(hint: Optional[str] = None) -> Optional[str]:
-    """Return a path to blutter.py (or a blutter executable), or None."""
+    """Return the Blutter the user pointed at, or None.
+
+    Only an explicit ``hint`` (--blutter) and BLUTTER_PATH are considered. The
+    managed clone is handled by bootstrap.ensure_blutter. PATH, the working
+    directory and the home directory are not searched: a blutter.py that
+    merely sits there would have its build scripts run without the user
+    choosing it.
+    """
     cands: List[str] = []
     if hint:
         cands.append(hint)
     env = os.environ.get("BLUTTER_PATH")
     if env:
         cands.append(env)
-    for name in ("blutter.py", "blutter", "blutter.exe"):
-        w = shutil.which(name)
-        if w:
-            cands.append(w)
-    home = os.path.expanduser("~")
-    for base in (os.getcwd(), home, os.path.join(home, "Desktop"),
-                 os.path.join(home, "tools"), "C:/tools", "/opt", "/usr/local/src"):
-        cands.append(os.path.join(base, "blutter", "blutter.py"))
-        cands.append(os.path.join(base, "Blutter", "blutter.py"))
 
     for c in cands:
         if not c:
@@ -150,9 +148,15 @@ def patch_cmake_compat(root: str, dry_run: bool = False) -> List[Patch]:
     Every patched file gets a ``.fd-backup`` copy the first time it is touched.
     """
     patches: List[Patch] = []
+    # Only a real Blutter checkout is patched. A bare executable given by
+    # --blutter has a parent directory that other tools may share, and walking
+    # it would rewrite their CMake files.
+    if not os.path.isfile(os.path.join(root, "blutter.py")):
+        return patches
     for path in _iter_cmake_files(root):
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            # newline="" keeps each file's own line endings (CRLF stays CRLF).
+            with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
                 lines = fh.readlines()
         except OSError:
             continue
@@ -183,8 +187,8 @@ def patch_cmake_compat(root: str, dry_run: bool = False) -> List[Patch]:
                           "variable is empty"
                           if RE_CMAKE_BARE_TAIL.search(orig)
                           else "cmake_minimum_required below 3.5 is rejected by CMake 4.x")
-                patches.append(Patch(path, i + 1, orig.rstrip("\n"),
-                                     new.rstrip("\n"), reason))
+                patches.append(Patch(path, i + 1, orig.rstrip("\r\n"),
+                                     new.rstrip("\r\n"), reason))
                 lines[i] = new
                 changed = True
 
@@ -281,15 +285,23 @@ _EXTRACT_AFTER = (
 )
 
 
-def _apply_text_patch(path: str, edits, marker: str, dry_run: bool) -> List[Patch]:
+def _apply_text_patch(path: str, edits, marker: str, dry_run: bool,
+                      log=None) -> List[Patch]:
     """Apply (before, after) text edits to one file. Idempotent via ``marker``:
-    if it is already present the file is left alone. Missing ``before`` slices
-    are skipped, never forced."""
+    if it is already present the file is left alone. A ``before`` slice that is
+    not in the file is never forced; it is reported through ``log`` so a
+    required fix that did not apply is visible, not silent.
+
+    The file's own line endings are kept: the text is matched with LF endings
+    and written back with the endings it came with (CRLF checkouts stay CRLF).
+    """
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            text = fh.read()
+        with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
+            raw = fh.read()
     except OSError:
         return []
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    text = raw.replace("\r\n", "\n")
     if marker in text:
         return []                     # already patched
     applied: List[Patch] = []
@@ -300,12 +312,17 @@ def _apply_text_patch(path: str, edits, marker: str, dry_run: bool) -> List[Patc
             applied.append(Patch(path, 0, before.strip().split("\n")[0],
                                  after.strip().split("\n")[0],
                                  "support Dart's combined single-snapshot layout"))
+        elif log is not None:
+            log("[blutter] WARNING: the fragment '%s' was not found in %s, so "
+                "that part of the fix was not applied"
+                % (before.strip().split("\n")[0].strip(), path))
     if applied and not dry_run:
         backup = path + ".fd-backup"
         if not os.path.exists(backup):
             shutil.copy2(path, backup)
+        out = new.replace("\n", eol) if eol != "\n" else new
         with open(path, "w", encoding="utf-8", newline="") as fh:
-            fh.write(new)
+            fh.write(out)
     return applied
 
 
@@ -357,18 +374,20 @@ def ensure_windows_externals(root: str, log=print) -> bool:
     return True
 
 
-def patch_combined_snapshot(root: str, dry_run: bool = False) -> List[Patch]:
+def patch_combined_snapshot(root: str, dry_run: bool = False,
+                            log=None) -> List[Patch]:
     """Teach Blutter to load Dart's combined (_kDartSnapshotData / ...Text)
     snapshot layout. Idempotent; safe to run on an already-patched or
     already-compatible checkout."""
     patches: List[Patch] = []
     elf = os.path.join(root, "blutter", "src", "ElfHelper.cpp")
     if os.path.isfile(elf):
-        patches += _apply_text_patch(elf, _ELF_PATCHES, "_kDartSnapshotText", dry_run)
+        patches += _apply_text_patch(elf, _ELF_PATCHES, "_kDartSnapshotText",
+                                     dry_run, log=log)
     extract = os.path.join(root, "extract_dart_info.py")
     if os.path.isfile(extract):
         patches += _apply_text_patch(extract, [(_EXTRACT_BEFORE, _EXTRACT_AFTER)],
-                                     "_kDartSnapshotData", dry_run)
+                                     "_kDartSnapshotData", dry_run, log=log)
     return patches
 
 
@@ -380,7 +399,8 @@ _MSVC_CCOPTS_BEFORE = "\t\t/Oy /GR- /EHs-c-\n"
 _MSVC_CCOPTS_AFTER = "\t\t/Oy /GR- /EHs-c- /Zc:preprocessor\n"
 
 
-def patch_msvc_preprocessor(root: str, dry_run: bool = False) -> List[Patch]:
+def patch_msvc_preprocessor(root: str, dry_run: bool = False,
+                            log=None) -> List[Patch]:
     """Add /Zc:preprocessor to the Dart VM's MSVC flags so __VA_OPT__ compiles.
 
     Windows/MSVC only in effect (the flag lives in an ``if (MSVC)`` block), but
@@ -393,7 +413,7 @@ def patch_msvc_preprocessor(root: str, dry_run: bool = False) -> List[Patch]:
     for path in _iter_cmake_files(root):
         patches += _apply_text_patch(
             path, [(_MSVC_CCOPTS_BEFORE, _MSVC_CCOPTS_AFTER)],
-            "/Zc:preprocessor", dry_run)
+            "/Zc:preprocessor", dry_run, log=log)
     return patches
 
 
