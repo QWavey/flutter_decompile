@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import struct
 from typing import List, Optional, Tuple
+from xml.sax.saxutils import escape as _xml_escape
 
 # Chunk types
 _RES_STRING_POOL = 0x0001
@@ -136,6 +137,10 @@ def decode(buf: bytes) -> str:
     # (kind, name, attrs) events; rendered in a second pass so a start
     # immediately followed by its own end collapses to a self-closing tag.
     events: List[Tuple[str, str, str]] = []
+    # START_NS chunks come before the root element. They are carried onto the
+    # first element as xmlns declarations, so the prefixes the attributes use
+    # are bound and the output parses as namespace-well-formed XML.
+    pending_ns: List[Tuple[str, str]] = []
 
     while off + 8 <= len(buf):
         ctype, _hsize, csize = struct.unpack_from("<HHI", buf, off)
@@ -144,8 +149,17 @@ def decode(buf: bytes) -> str:
 
         if ctype == _RES_STRING_POOL:
             pool, _ = _read_string_pool(buf, off)
+        elif ctype == _RES_XML_START_NS and pool is not None:
+            # ResXMLTree_node (16 bytes) then ResXMLTree_namespaceExt: prefix, uri
+            prefix_i, uri_i = struct.unpack_from("<II", buf, off + 16)
+            pending_ns.append((pool.get(prefix_i) or "", pool.get(uri_i) or ""))
         elif ctype == _RES_XML_START_ELEM and pool is not None:
             name, attrs = _start_element(buf, off, pool)
+            decls = " ".join('xmlns:%s="%s"' % (p, _xml_escape(u, {'"': "&quot;"}))
+                             for p, u in pending_ns if p)
+            pending_ns = []
+            if decls:
+                attrs = (decls + " " + attrs) if attrs else decls
             events.append(("start", name, attrs))
         elif ctype == _RES_XML_END_ELEM and pool is not None:
             name = pool.get(struct.unpack_from("<I", buf, off + 20)[0]) or "?"
@@ -210,7 +224,10 @@ def _start_element(buf: bytes, off: int, pool: _StringPool) -> Tuple[str, str]:
             value = pool.get(raw_i) or _fmt_value(pool, dtype, data)
         else:
             value = _fmt_value(pool, dtype, data)
-        attrs.append('%s%s="%s"' % (prefix, aname, value.replace('"', "&quot;")))
+        # Escape &, < and > as well as quotes, or a value such as a label with
+        # an ampersand produces markup no XML parser accepts.
+        attrs.append('%s%s="%s"' % (prefix, aname,
+                                    _xml_escape(value, {'"': "&quot;"})))
 
     return name, " ".join(attrs)
 
