@@ -27,8 +27,11 @@ No third-party dependencies; standard library only.
 from __future__ import annotations
 
 import argparse
+import base64
+import functools
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -124,20 +127,31 @@ def find_sdk() -> str:
              + "\nSet ANDROID_SDK_ROOT, or install the SDK via Android Studio.")
 
 
-SDK = find_sdk()
+@functools.lru_cache(maxsize=None)
+def sdk_root() -> str:
+    """The Android SDK root, found on first use.
+
+    Resolved lazily so the module imports, and --help works, on a machine
+    without the SDK. A missing SDK is reported when a tool is actually needed.
+    """
+    return find_sdk()
 
 
 def sdk_tool(*parts: str) -> str:
     """Path to an SDK executable, trying this platform's suffixes."""
-    base = os.path.join(SDK, *parts)
+    base = os.path.join(sdk_root(), *parts)
     for suffix in ((".exe", ".bat", "") if IS_WINDOWS else ("",)):
         if os.path.exists(base + suffix):
             return base + suffix
     return base + (".exe" if IS_WINDOWS else "")
 
 
-ADB = sdk_tool("platform-tools", "adb")
-EMULATOR = sdk_tool("emulator", "emulator")
+def adb() -> str:
+    return sdk_tool("platform-tools", "adb")
+
+
+def emulator_exe() -> str:
+    return sdk_tool("emulator", "emulator")
 
 
 def find_flutter() -> str:
@@ -160,12 +174,29 @@ def find_flutter() -> str:
     sys.exit("flutter not found on PATH. Install it or add it to PATH.")
 
 
-FLUTTER = find_flutter()
+@functools.lru_cache(maxsize=None)
+def flutter_exe() -> str:
+    """The flutter binary, found on first use (see sdk_root)."""
+    return find_flutter()
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", **kw)
+
+
+def _ps_quote(value: str) -> str:
+    """A PowerShell single-quoted literal. PowerShell also reads the curly
+    single quotes as quote characters, so each of those is doubled too."""
+    for ch in ("'", "‘", "’", "‚", "‛"):
+        value = value.replace(ch, ch * 2)
+    return "'" + value + "'"
+
+
+def _ps_encoded(script: str) -> str:
+    """The -EncodedCommand payload (UTF-16LE, base64): no shell layer parses
+    the script again, so nothing in it can be re-interpreted."""
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
 
 def git(*args: str) -> str:
@@ -257,7 +288,7 @@ def checkout(branch: str, current: str) -> bool:
     # Branches can differ in pubspec, and a stale .dart_tool produces failures
     # that read as code errors rather than a missed dependency fetch.
     print("flutter pub get…")
-    subprocess.run([FLUTTER, "pub", "get"], cwd=REPO)
+    subprocess.run([flutter_exe(), "pub", "get"], cwd=REPO)
     return True
 
 
@@ -266,12 +297,12 @@ def checkout(branch: str, current: str) -> bool:
 # --------------------------------------------------------------------------- #
 
 def avds() -> list[str]:
-    return [l.strip() for l in run([EMULATOR, "-list-avds"]).stdout.splitlines()
+    return [l.strip() for l in run([emulator_exe(), "-list-avds"]).stdout.splitlines()
             if l.strip()]
 
 
 def serials() -> list[str]:
-    out = run([ADB, "devices"]).stdout
+    out = run([adb(), "devices"]).stdout
     return [p[0] for p in (l.split() for l in out.splitlines()[1:])
             if len(p) == 2 and p[1] == "device"]
 
@@ -283,7 +314,7 @@ def booted(serial: str) -> bool:
     installing too early fails in ways that look like build errors. This is the
     property that actually means ready.
     """
-    return run([ADB, "-s", serial, "shell", "getprop",
+    return run([adb(), "-s", serial, "shell", "getprop",
                 "sys.boot_completed"]).stdout.strip() == "1"
 
 
@@ -429,13 +460,13 @@ def make_responsive(serial: str, width: int, height: int, density: int) -> None:
     Fully reversible and does not touch the AVD: `adb shell wm size reset`
     (and `wm density reset`) puts it back, and so does rebooting the device.
     """
-    run([ADB, "-s", serial, "shell", "wm", "size", f"{width}x{height}"])
-    run([ADB, "-s", serial, "shell", "wm", "density", str(density)])
+    run([adb(), "-s", serial, "shell", "wm", "size", f"{width}x{height}"])
+    run([adb(), "-s", serial, "shell", "wm", "density", str(density)])
 
 
 def reset_display(serial: str) -> None:
-    run([ADB, "-s", serial, "shell", "wm", "size", "reset"])
-    run([ADB, "-s", serial, "shell", "wm", "density", "reset"])
+    run([adb(), "-s", serial, "shell", "wm", "size", "reset"])
+    run([adb(), "-s", serial, "shell", "wm", "density", "reset"])
 
 
 def defender_advice() -> str:
@@ -482,18 +513,22 @@ def boot(avd: str, port: int, headless: bool,
     args = _emulator_args(avd, port, headless, memory_mb)
 
     if elevate and IS_WINDOWS:
-        emu_dir = os.path.dirname(EMULATOR)
-        quoted = ",".join(f"'{a}'" for a in args)
+        emu = emulator_exe()
+        emu_dir = os.path.dirname(emu)
+        # Each value is a PowerShell literal, so a quote in a profile path or
+        # AVD name cannot end the string early and change the command.
+        arg_list = ",".join(_ps_quote(a) for a in args)
         # Start-Process -Verb RunAs is what raises the consent dialog. It needs
         # an interactive desktop, so this only works from a real terminal - it
         # reports a misleading "path not found" when run headless.
-        script = (f"Start-Process -FilePath '{EMULATOR}' "
-                  f"-WorkingDirectory '{emu_dir}' "
-                  f"-ArgumentList {quoted} -Verb RunAs")
+        script = (f"Start-Process -FilePath {_ps_quote(emu)} "
+                  f"-WorkingDirectory {_ps_quote(emu_dir)} "
+                  f"-ArgumentList {arg_list} -Verb RunAs")
         print("  requesting elevation - approve the UAC prompt")
-        result = subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                                capture_output=True, text=True,
-                                encoding="utf-8", errors="replace")
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-EncodedCommand", _ps_encoded(script)],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace")
         if result.returncode != 0:
             print("  elevation failed or was declined:")
             print("    " + (result.stderr or "").strip().splitlines()[0]
@@ -505,7 +540,7 @@ def boot(avd: str, port: int, headless: bool,
     # went wrong ("WHPX: Failed to setup partition, hr=80070005") and we were
     # discarding it.
     log = open(emulator_log_path(), "wb")
-    return subprocess.Popen([EMULATOR] + args, stdout=log, stderr=log)
+    return subprocess.Popen([emulator_exe()] + args, stdout=log, stderr=log)
 
 
 def emulator_log_path() -> str:
@@ -513,23 +548,29 @@ def emulator_log_path() -> str:
 
 
 def kill_emulators() -> int:
-    """Kill emulator/qemu processes we are giving up on.
+    """Kill the emulator and qemu processes that this SDK started, and only those.
 
     Necessary, not tidiness. A crashed emulator blocked on its consent dialog
     keeps running - well over a gigabyte of it - and keeps the AVD locked, so
     every later attempt inherits a stale lock and a busy device. Leaving one
     behind on each failure is how you end up with several.
+
+    Scoped to the SDK's emulator directory, so an emulator the user runs for
+    another project is left alone. Returns how many processes were stopped.
     """
-    names = ["qemu-system-x86_64", "qemu-system-aarch64", "emulator"]
-    killed = 0
-    for name in names:
-        if IS_WINDOWS:
-            result = run(["taskkill", "/F", "/T", "/IM", name + ".exe"])
-        else:
-            result = run(["pkill", "-f", name])
-        if result.returncode == 0:
-            killed += 1
-    return killed
+    emu_dir = os.path.dirname(emulator_exe())
+    if IS_WINDOWS:
+        script = (
+            "Get-Process -Name emulator,qemu-system-x86_64,qemu-system-aarch64 "
+            "-ErrorAction SilentlyContinue | Where-Object { $_.Path -and "
+            f"$_.Path.StartsWith({_ps_quote(emu_dir)}, 'OrdinalIgnoreCase') }} | "
+            "ForEach-Object { Stop-Process -Id $_.Id -Force; $_.Id }")
+        result = run(["powershell", "-NoProfile", "-EncodedCommand",
+                      _ps_encoded(script)])
+        return sum(1 for token in result.stdout.split() if token.isdigit())
+    # Matches the full command line, so the pattern is the directory itself.
+    result = run(["pkill", "-f", re.escape(emu_dir)])
+    return 1 if result.returncode == 0 else 0
 
 
 def emulator_crashed() -> bool:
@@ -679,8 +720,8 @@ def main() -> int:
 
     print(f"host:    {platform.system()} {platform.machine()}")
     print(f"project: {REPO}")
-    print(f"sdk:     {SDK}")
-    print(f"flutter: {FLUTTER}")
+    print(f"sdk:     {sdk_root()}")
+    print(f"flutter: {flutter_exe()}")
 
     available = avds()
     if args.list:
@@ -780,14 +821,14 @@ def main() -> int:
 
     if args.clean:
         print("flutter clean…")
-        subprocess.run([FLUTTER, "clean"], cwd=REPO)
+        subprocess.run([flutter_exe(), "clean"], cwd=REPO)
 
     if args.reverse:
         for serial in devices:
             # Inside an emulator 127.0.0.1 is the EMULATOR's loopback, not the
             # host's, so a server bound to localhost here is otherwise
             # unreachable from the app.
-            run([ADB, "-s", serial, "reverse",
+            run([adb(), "-s", serial, "reverse",
                  f"tcp:{args.reverse}", f"tcp:{args.reverse}"])
         print(f"adb reverse tcp:{args.reverse} on every device")
 
@@ -799,19 +840,19 @@ def main() -> int:
     # actually usable rather than one hanging on a prompt it cannot answer.
     if len(devices) == 1:
         print(f"\n=== flutter run {mode} on {devices[0]} ===")
-        return subprocess.run([FLUTTER, "run", mode, "-d", devices[0]],
+        return subprocess.run([flutter_exe(), "run", mode, "-d", devices[0]],
                               cwd=REPO).returncode
 
     package = app_id()
     failures = 0
     for serial in devices:
         print(f"\n=== install + launch on {serial} ({mode}) ===")
-        if subprocess.run([FLUTTER, "install", mode, "-d", serial],
+        if subprocess.run([flutter_exe(), "install", mode, "-d", serial],
                           cwd=REPO).returncode != 0:
             failures += 1
             print(f"!! install failed on {serial}")
             continue
-        run([ADB, "-s", serial, "shell", "monkey", "-p", package,
+        run([adb(), "-s", serial, "shell", "monkey", "-p", package,
              "-c", "android.intent.category.LAUNCHER", "1"])
         print(f"launched {package}")
 
