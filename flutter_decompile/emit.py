@@ -325,6 +325,13 @@ class DartEmitter:
 
     def _add_file(self, rel: str, url: Optional[str], text: str, stats: Dict[str, int]) -> None:
         abs_path = os.path.join(self.opt.out_dir, rel.replace("/", os.sep))
+        root = os.path.abspath(self.opt.out_dir)
+        try:
+            inside = os.path.commonpath([os.path.abspath(abs_path), root]) == root
+        except ValueError:  # different drive
+            inside = False
+        if not inside:
+            raise ValueError("refusing to emit %r outside %s" % (rel, root))
         self.result.files.append(
             EmittedFile(rel_path=rel, abs_path=abs_path, library_url=url, text=text, stats=stats)
         )

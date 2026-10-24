@@ -344,6 +344,17 @@ def vm_to_dart(raw: str) -> Tuple[str, Optional[str]]:
     return mapped, note
 
 
+def _safe_rel(rel: str) -> str:
+    """Keep only the segments that cannot escape an output directory.
+
+    Drops '', '.', '..' and any segment with a colon (a Windows drive such as
+    'D:'), which os.path.join() would otherwise treat as a new root.
+    """
+    parts = [seg for seg in rel.replace("\\", "/").split("/")
+             if seg not in ("", ".", "..") and ":" not in seg]
+    return "/".join(parts) or "unnamed.dart"
+
+
 def sanitize_identifier(name: str, *, private_ok: bool = True) -> str:
     """Make a Dart-legal identifier out of a recovered/inferred string."""
     name = demangle(name or "")
@@ -798,13 +809,17 @@ class LibraryIR:
 
     @property
     def rel_path(self) -> str:
-        """`package:chat/core/crypto/kdf.dart` -> `core/crypto/kdf.dart`."""
+        """`package:chat/core/crypto/kdf.dart` -> `core/crypto/kdf.dart`.
+
+        '.', '..', empty and drive-qualified segments are dropped so the result
+        can be joined onto an output directory without escaping it.
+        """
         m = re.match(r"^package:[^/]+/(.*)$", self.url or "")
         if m:
-            return m.group(1)
+            return _safe_rel(m.group(1))
         if (self.url or "").startswith("dart:"):
             return self.url.replace(":", "_") + ".dart"
-        safe = re.sub(r"[^A-Za-z0-9_./-]", "_", self.url or "unknown")
+        safe = _safe_rel(re.sub(r"[^A-Za-z0-9_./-]", "_", self.url or "unknown"))
         return safe if safe.endswith(".dart") else safe + ".dart"
 
     def all_classes(self) -> List[ClassIR]:
