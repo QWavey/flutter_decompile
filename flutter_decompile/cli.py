@@ -49,9 +49,15 @@ def _skeleton_match(pattern: str, url: str) -> bool:
 
 
 def _url_to_path(url: str) -> str:
-    """`package:chat/features/panic/domain/panic.dart` -> a relative path."""
-    tail = url.split(":", 1)[-1]
-    parts = [seg for seg in tail.split("/") if seg not in ("", ".", "..")]
+    """`package:chat/features/panic/domain/panic.dart` -> a relative path.
+
+    Segments that are '.', '..' or carry a colon (a Windows drive such as
+    'D:') are dropped. On Windows os.path.join() would otherwise discard the
+    output root when it meets a drive-qualified part.
+    """
+    tail = url.split(":", 1)[-1].replace("\\", "/")
+    parts = [seg for seg in tail.split("/")
+             if seg not in ("", ".", "..") and ":" not in seg]
     return os.path.join(*parts) if parts else "unnamed.dart"
 
 
