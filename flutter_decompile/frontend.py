@@ -720,9 +720,14 @@ def _run(args, ap) -> int:
                        "(the long one - output follows)")
         _STATE["long_build"] = True
         try:
-            run = bd.run_blutter(lib_dir,
-                                 os.path.join(out, "blutter_out"),
-                                 blutter_py=blutter_py, log=_say)
+            # Pass the identified version and snapshot hash, as the CLI path
+            # does, so Blutter builds the VM the plan above said it would.
+            run = bd.run_blutter(
+                lib_dir, os.path.join(out, "blutter_out"),
+                blutter_py=blutter_py,
+                dart_version=None if dart_version == "unknown" else dart_version,
+                snapshot_hash=getattr(info, "snapshot_hash", None) or None,
+                log=_say)
         except bd.BlutterError as e:
             raise Abort(
                 f"Blutter did not finish: {e}",
@@ -758,6 +763,7 @@ def _run(args, ap) -> int:
     # manifest) so the output is a restored project, not just its code. Each
     # part is labelled for exactly how honestly it came back.
     app_facts: dict = {}
+    restored_md = ""  # stays empty unless the restore step below writes it
     if not adopting and args.decompile.lower().endswith((".apk", ".aab", ".zip")):
         progress.stage("Restoring the rest of the APK (assets, resources, libs)")
         try:
