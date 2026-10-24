@@ -369,7 +369,9 @@ def blutter_support_warning(layout: str,
     None when it looks fine. Keyed on the combined-snapshot layout (the reliable
     on-disk signal) and, when known, the Dart version."""
     ver = dart_version_tuple(dart_version)
-    newer = ver is not None and ver > BLUTTER_MAX_DART
+    # Compare major.minor only: (3, 8, 1) > (3, 8) is True in Python, which
+    # would flag every 3.8.x patch release as newer than the 3.8 limit.
+    newer = ver is not None and tuple(ver[:2]) > BLUTTER_MAX_DART
     if layout == "combined" or newer:
         vtxt = dart_version or "this version"
         return (
