@@ -245,6 +245,10 @@ def test_an_existing_checkout_is_used_and_nothing_is_fetched(monkeypatch, tmp_pa
 def test_the_cached_clone_is_preferred_over_a_fresh_one(no_blutter_anywhere,
                                                         monkeypatch):
     cached = fake_checkout(no_blutter_anywhere)
+    # A cache is trusted only at the reviewed commit, so this fake one is
+    # reported as being there.
+    monkeypatch.setattr(bootstrap, "_checked_out_sha",
+                        lambda target: bootstrap.BLUTTER_PINNED_SHA)
     monkeypatch.setattr(bootstrap.subprocess, "run", lambda *a, **k: pytest.fail(
         "re-cloned over a cached checkout"))
     assert bootstrap.ensure_blutter(log=lambda *_: None) == cached
