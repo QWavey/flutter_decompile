@@ -33,7 +33,7 @@ import shutil
 import struct
 import zipfile
 from dataclasses import dataclass, field as dc_field
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # What each top-level area of an APK is, and how honestly we can hand it back.
@@ -89,6 +89,28 @@ def _classify(arc: str) -> Tuple[str, str]:
     return "assets", "RECOVERED"
 
 
+def _safe_member_path(contents: str, arc: str) -> Optional[str]:
+    """Return where a zip member may be written under ``contents``, or None.
+
+    A segment that is '..' or carries a drive designator (such as 'C:') is
+    refused. On Windows, os.path.join() discards ``contents`` when it meets a
+    drive-qualified part, so the write would land anywhere on that drive. The
+    final containment check is a second line of defence.
+    """
+    parts = arc.replace("\\", "/").lstrip("/").split("/")
+    if any(part == ".." or ":" in part for part in parts):
+        return None
+    dest = os.path.normpath(os.path.join(contents, *parts))
+    root = os.path.normpath(contents)
+    try:
+        if os.path.commonpath([os.path.abspath(dest), os.path.abspath(root)]) \
+                != os.path.abspath(root):
+            return None
+    except ValueError:
+        return None
+    return dest
+
+
 def extract_all(apk_path: str, dest_root: str,
                 log=lambda s: None) -> RestoreResult:
     """Unpack the entire APK into ``dest_root/apk_contents`` and inventory it."""
@@ -101,12 +123,12 @@ def extract_all(apk_path: str, dest_root: str,
             arc = info.filename
             if arc.endswith("/"):
                 continue
-            # zipfile already refuses absolute paths; guard traversal anyway.
-            safe = arc.replace("\\", "/").lstrip("/")
-            if ".." in safe.split("/"):
+            # zf.open() does not sanitise names the way extract() does, so the
+            # guard lives here.
+            dest = _safe_member_path(contents, arc)
+            if dest is None:
                 result.skipped += 1
                 continue
-            dest = os.path.join(contents, *safe.split("/"))
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             try:
                 with zf.open(info) as src, open(dest, "wb") as out:
