@@ -4,70 +4,70 @@
 
 Issue #1 is an audit umbrella. Each of its bullets is listed separately. Issues #2 to #37 repeat several of those bullets and are listed one by one too; a single commit can close both.
 
-- [ ] #1 Blutter clone unpinned and its setup script executed — bootstrap.py:326-343, 397-409 — FIX — open
-- [ ] #1 Zip entry names with drive prefixes can escape the APK extraction root — restore.py:104-110 — FIX — open
-- [ ] #1 Emitter output path keeps '..' segments from snapshot library URLs — ir.py:800-804; emit.py:202-206 — FIX — open
-- [ ] #1 URL-to-path helper keeps drive-qualified segments — cli.py:51-55 — FIX — open
-- [ ] #1 PowerShell elevation command built by string interpolation — tools/launch_device.py:486-496 — FIX — open
-- [ ] #1 Temporary .bat file interpolates the vcvars path unescaped — blutter_driver.py:476-486 — FIX — open
-- [ ] #1 CI actions pinned to mutable tags — .github/workflows/ci.yml:48, 50 — FIX — open
+- [x] #1 Blutter clone unpinned and its setup script executed — bootstrap.py:326-343, 397-409 — FIX — fixed in 4a916c8 (the SHA pin itself was b2db8c1). Checkout is verified against the pin and a cached clone is replaced unless it is at the pin. Windows init_env_win.py still runs, from the pinned commit; checksums for its downloads are not verified
+- [x] #1 Zip entry names with drive prefixes can escape the APK extraction root — restore.py:104-110 — FIX — fixed in e89e504
+- [x] #1 Emitter output path keeps '..' segments from snapshot library URLs — ir.py:800-804; emit.py:202-206 — FIX — fixed in 0748a01
+- [x] #1 URL-to-path helper keeps drive-qualified segments — cli.py:51-55 — FIX — fixed in bf4ee1a
+- [x] #1 PowerShell elevation command built by string interpolation — tools/launch_device.py:486-496 — FIX — fixed in 44f8f2f
+- [x] #1 Temporary .bat file interpolates the vcvars path unescaped — blutter_driver.py:476-486 — FIX — fixed in a8ad4c5 (refused, not escaped)
+- [x] #1 CI actions pinned to mutable tags — .github/workflows/ci.yml:48, 50 — FIX — fixed in eebe468
 - [ ] #1 Optional GUI and dev dependencies use open lower bounds — pyproject.toml:53-63 — SKIP — no defect shown; adding a lockfile or constraints file is a new artifact outside this fix
-- [ ] #1 Unbound restored_md crashes the run after the full pipeline — frontend.py:770, 799-800 — FIX — open
-- [ ] #1 Dart 3.8.x patch releases treated as newer than Blutter's 3.8 limit — apk.py:363, 372 — FIX — open
-- [ ] #1 Stop and window close kill only the frontend, not the Blutter build — gui.py:173-176, 216-219 — FIX — open
-- [ ] #1 Windows drive-letter library URLs can write outside the output directory — cli.py:51-55, 268-269; reconstruct.py:360 — FIX — open
-- [ ] #1 APK restore traversal guard misses drive-letter entry names — restore.py:103-109 — FIX — open
-- [ ] #1 Decoded AndroidManifest is not namespace-well-formed; attribute values not fully escaped — axml.py:25, 145-152, 213 — FIX — open
-- [ ] #1 Call target annotations looked up by exact address despite nearest-address design — reconstruct.py:161-171, 138 — FIX — open
-- [ ] #1 find_blutter can return a bare PATH executable whose directory is then patched — blutter_driver.py:93-112, 629, 636, 739-740 — FIX — open
-- [ ] #1 Default path does not forward identified Dart version or snapshot hash to Blutter — frontend.py:723-725, 676 — FIX — open
-- [ ] #1 --infer-fields accepted and silently ignored — cli.py:98-108 — FIX — open
-- [ ] #1 Patching CMake and ElfHelper files rewrites all CRLF line endings to LF — blutter_driver.py:154-156, 195-196, 289-308 — FIX — open
-- [ ] #1 --infer-fields never read; README documents it as working — cli.py:98-108; README.md:28, 152 — FIX — open
-- [ ] #1 APK member extraction rejects '..' but not drive-prefixed names — restore.py:104-109 — FIX — open
-- [ ] #1 Stage list reports infer, emit and report as implemented — __init__.py:47-48; cli.py epilog and report.json — FIX — open
-- [ ] #1 Blutter timeout is not enforced while the build is streaming — blutter_driver.py:613, 683-691 — FIX — open
-- [ ] #1 Blutter cloned unpinned; upstream scripts and C++ run or rewritten by exact-text match — bootstrap.py:326-327; blutter_driver.py:231-272, 341 — FIX — open
-- [ ] #1 Implicit Blutter discovery runs whatever blutter.py sits in the working directory — blutter_driver.py:97-112; frontend.py:564, 674 — FIX — open
-- [ ] #1 PowerShell elevation interpolates paths and names inside unescaped single quotes — tools/launch_device.py:486-492 — FIX — open
-- [ ] #1 kill_emulators stops every emulator and qemu process on the machine — tools/launch_device.py:515-532 — FIX — open
-- [ ] #1 URL-to-path mapping implemented four times; unfiltered copy feeds an emitter — ir.py:800-808; parse_asm.py:487-493; emit.py:202-206; cli.py:51-56; reconstruct.py:352 — FIX — open
-- [ ] #1 Key user paths and the launcher have no tests — frontend.py; tools/launch_device.py:127, 163 — FIX — open
-- [ ] #1 Patch helpers silently rewrite CRLF files as LF — blutter_driver.py:155-196, 289-308 — FIX — open
+- [x] #1 Unbound restored_md crashes the run after the full pipeline — frontend.py:770, 799-800 — FIX — fixed in 226dada
+- [x] #1 Dart 3.8.x patch releases treated as newer than Blutter's 3.8 limit — apk.py:363, 372 — FIX — fixed in ba070ba
+- [x] #1 Stop and window close kill only the frontend, not the Blutter build — gui.py:173-176, 216-219 — FIX — fixed in 9a13dc7
+- [x] #1 Windows drive-letter library URLs can write outside the output directory — cli.py:51-55, 268-269; reconstruct.py:360 — FIX — fixed in bf4ee1a
+- [x] #1 APK restore traversal guard misses drive-letter entry names — restore.py:103-109 — FIX — fixed in e89e504
+- [x] #1 Decoded AndroidManifest is not namespace-well-formed; attribute values not fully escaped — axml.py:25, 145-152, 213 — FIX — fixed in 24a9143
+- [x] #1 Call target annotations looked up by exact address despite nearest-address design — reconstruct.py:161-171, 138 — FIX — fixed in cdebb9e (checks one instruction either side; not a bisect; not checked against real Blutter output)
+- [x] #1 find_blutter can return a bare PATH executable whose directory is then patched — blutter_driver.py:93-112, 629, 636, 739-740 — FIX — fixed in 4a916c8
+- [x] #1 Default path does not forward identified Dart version or snapshot hash to Blutter — frontend.py:723-725, 676 — FIX — fixed in 226dada
+- [x] #1 --infer-fields accepted and silently ignored — cli.py:98-108 — FIX — fixed in dba92cd (warns on a non-default value)
+- [x] #1 Patching CMake and ElfHelper files rewrites all CRLF line endings to LF — blutter_driver.py:154-156, 195-196, 289-308 — FIX — fixed in 4a916c8
+- [x] #1 --infer-fields never read; README documents it as working — cli.py:98-108; README.md:28, 152 — FIX — fixed in dba92cd (README and help now say no effect in 0.1; the inference is not wired in)
+- [x] #1 APK member extraction rejects '..' but not drive-prefixed names — restore.py:104-109 — FIX — fixed in e89e504
+- [x] #1 Stage list reports infer, emit and report as implemented — __init__.py:47-48; cli.py epilog and report.json — FIX — fixed in 85a7b38 (infer moved to not implemented; emit and report stay, since the CLI runs them through emit_tree and render_report_md)
+- [x] #1 Blutter timeout is not enforced while the build is streaming — blutter_driver.py:613, 683-691 — FIX — fixed in a711a48
+- [x] #1 Blutter cloned unpinned; upstream scripts and C++ run or rewritten by exact-text match — bootstrap.py:326-327; blutter_driver.py:231-272, 341 — FIX — fixed in 4a916c8 and b302d70 (a missing fragment is now logged as a warning; the pin is verified)
+- [x] #1 Implicit Blutter discovery runs whatever blutter.py sits in the working directory — blutter_driver.py:97-112; frontend.py:564, 674 — FIX — fixed in 4a916c8 (only --blutter and BLUTTER_PATH are searched; PATH, the working directory and fixed locations are not)
+- [x] #1 PowerShell elevation interpolates paths and names inside unescaped single quotes — tools/launch_device.py:486-492 — FIX — fixed in 44f8f2f
+- [x] #1 kill_emulators stops every emulator and qemu process on the machine — tools/launch_device.py:515-532 — FIX — fixed in 44f8f2f (limited to processes under this SDK's emulator directory)
+- [ ] #1 URL-to-path mapping implemented four times; unfiltered copy feeds an emitter — ir.py:800-808; parse_asm.py:487-493; emit.py:202-206; cli.py:51-56; reconstruct.py:352 — FIX — partly fixed in 0748a01: emitter paths are filtered and the write is refused outside out_dir. Still open: merging the four copies into one helper and moving _skeleton_match and _url_to_path out of cli (a refactor)
+- [ ] #1 Key user paths and the launcher have no tests — frontend.py; tools/launch_device.py:127, 163 — FIX — partly fixed in 44f8f2f: SDK and Flutter are resolved on first use, so the launcher imports and --help works without the SDK. Still open: adding frontend and launcher test modules (an improvement, not a defect)
+- [x] #1 Patch helpers silently rewrite CRLF files as LF — blutter_driver.py:155-196, 289-308 — FIX — fixed in 4a916c8
 - [ ] #1 Long functions and repeated work in hot paths — frontend.py:528; cli.py:79; tools/launch_device.py:636; bootstrap.py:234; reconstruct.py:80-95 — SKIP — refactor and performance work, no defect described
-- [ ] #2 Blutter clone is unpinned and its setup script is executed — bootstrap.py:326-343, 397-409 — FIX — open
-- [ ] #3 Zip entry names with drive prefixes can escape the APK extraction root — restore.py:104-110 — FIX — open
-- [ ] #4 Emitter output path keeps '..' segments from snapshot library URLs — ir.py:800-804; emit.py:202-206, 224-228, 326-327 — FIX — open
-- [ ] #5 URL-to-path helper keeps drive-qualified segments — cli.py:51-55 — FIX — open
-- [ ] #6 PowerShell elevation command built by string interpolation — tools/launch_device.py:486-496 — FIX — open
-- [ ] #7 Temporary .bat file interpolates the vcvars path unescaped — blutter_driver.py:476-486 — FIX — open
-- [ ] #8 CI actions pinned to mutable tags — .github/workflows/ci.yml:48, 50 — FIX — open
+- [x] #2 Blutter clone is unpinned and its setup script is executed — bootstrap.py:326-343, 397-409 — FIX — fixed in 4a916c8 and b302d70 (see #1 for the Windows script note)
+- [x] #3 Zip entry names with drive prefixes can escape the APK extraction root — restore.py:104-110 — FIX — fixed in e89e504
+- [x] #4 Emitter output path keeps '..' segments from snapshot library URLs — ir.py:800-804; emit.py:202-206, 224-228, 326-327 — FIX — fixed in 0748a01
+- [x] #5 URL-to-path helper keeps drive-qualified segments — cli.py:51-55 — FIX — fixed in bf4ee1a
+- [x] #6 PowerShell elevation command built by string interpolation — tools/launch_device.py:486-496 — FIX — fixed in 44f8f2f
+- [x] #7 Temporary .bat file interpolates the vcvars path unescaped — blutter_driver.py:476-486 — FIX — fixed in a8ad4c5
+- [x] #8 CI actions pinned to mutable tags — .github/workflows/ci.yml:48, 50 — FIX — fixed in eebe468
 - [ ] #9 Optional GUI and dev dependencies use open lower bounds — pyproject.toml:53-63 — SKIP — no defect shown; adding a lockfile or constraints file is a new artifact outside this fix
-- [ ] #10 Unbound restored_md crashes run after full pipeline for non-archive inputs — frontend.py:770, 799-800 — FIX — open
-- [ ] #11 Dart 3.8.x patch releases are treated as newer than Blutter's 3.8 limit — apk.py:363, 372 — FIX — open
-- [ ] #12 Stop and window close kill only the frontend process, not the Blutter build — gui.py:173-176, 216-219 — FIX — open
-- [ ] #13 Windows drive-letter library URLs can write outside the output directory — cli.py:51-55, 268-269; reconstruct.py:360 — FIX — open
-- [ ] #14 APK restore traversal guard misses drive-letter entry names — restore.py:103-109 — FIX — open
-- [ ] #15 Decoded AndroidManifest is not namespace-well-formed and attribute values are not fully escaped — axml.py:25, 145-152, 213 — FIX — open
-- [ ] #16 Call target annotations are looked up by exact address despite the documented nearest-address design — reconstruct.py:161-171, 138 — FIX — open
-- [ ] #17 find_blutter can return a bare PATH executable whose directory is then patched as a checkout — blutter_driver.py:93-112, 629, 636, 739-740 — FIX — open
-- [ ] #18 Default path does not forward identified Dart version or snapshot hash to Blutter — frontend.py:723-725, 604-605, 676 — FIX — open
-- [ ] #19 --infer-fields is accepted and silently ignored — cli.py:98-108 — FIX — open
-- [ ] #20 Patching CMake and ElfHelper files rewrites all CRLF line endings to LF — blutter_driver.py:154-156, 195-196, 289-308 — FIX — open
-- [ ] #21 --infer-fields is accepted but never read; README documents it as working — cli.py:98-108; README.md:28, 152 — FIX — open
-- [ ] #22 APK member extraction rejects '..' but not drive-prefixed names — restore.py:104-109 — FIX — open
-- [ ] #23 Stage list reports infer, emit and report as implemented when the CLI runs other code — __init__.py:47-48; cli.py — FIX — open
-- [ ] #24 Blutter timeout is not enforced while the build is streaming — blutter_driver.py:613, 683-691 — FIX — open
-- [ ] #25 Blutter is cloned unpinned, and upstream scripts and C++ are run or rewritten by exact-text match — bootstrap.py:326-327; blutter_driver.py:231-272, 341 — FIX — open
-- [ ] #26 Implicit Blutter discovery runs whatever blutter.py sits in the working directory — blutter_driver.py:97-112; frontend.py:564, 674 — FIX — open
-- [ ] #27 PowerShell elevation command interpolates paths and names inside unescaped single quotes — tools/launch_device.py:486-492 — FIX — open
-- [ ] #28 PowerShell elevation command interpolates paths and names inside unescaped single quotes — tools/launch_device.py:486-492 — FIX — open
-- [ ] #29 kill_emulators stops every emulator and qemu process on the machine — tools/launch_device.py:515-532 — FIX — open
-- [ ] #30 kill_emulators stops every emulator and qemu process on the machine — tools/launch_device.py:515-532 — FIX — open
-- [ ] #31 URL-to-path mapping is implemented four times, and the unfiltered copy feeds an unused emitter — ir.py:800-808; parse_asm.py:487-493; emit.py:202-206; cli.py:51-56; reconstruct.py:352 — FIX — open
-- [ ] #32 URL-to-path mapping is implemented four times, and the unfiltered copy feeds an unused emitter — ir.py:800-808; parse_asm.py:487-493; emit.py:202-206; cli.py:51-56; reconstruct.py:352 — FIX — open
-- [ ] #33 Key user paths and the launcher have no tests — frontend.py; tools/launch_device.py:127, 163 — FIX — open
-- [ ] #34 Key user paths and the launcher have no tests — frontend.py; tools/launch_device.py:127, 163 — FIX — open
-- [ ] #35 Patch helpers silently rewrite CRLF files as LF — blutter_driver.py:155-196, 289-308 — FIX — open
-- [ ] #36 Patch helpers silently rewrite CRLF files as LF — blutter_driver.py:155-196, 289-308 — FIX — open
+- [x] #10 Unbound restored_md crashes run after full pipeline for non-archive inputs — frontend.py:770, 799-800 — FIX — fixed in 226dada
+- [x] #11 Dart 3.8.x patch releases are treated as newer than Blutter's 3.8 limit — apk.py:363, 372 — FIX — fixed in ba070ba
+- [x] #12 Stop and window close kill only the frontend process, not the Blutter build — gui.py:173-176, 216-219 — FIX — fixed in 9a13dc7
+- [x] #13 Windows drive-letter library URLs can write outside the output directory — cli.py:51-55, 268-269; reconstruct.py:360 — FIX — fixed in bf4ee1a
+- [x] #14 APK restore traversal guard misses drive-letter entry names — restore.py:103-109 — FIX — fixed in e89e504
+- [x] #15 Decoded AndroidManifest is not namespace-well-formed and attribute values are not fully escaped — axml.py:25, 145-152, 213 — FIX — fixed in 24a9143
+- [x] #16 Call target annotations are looked up by exact address despite the documented nearest-address design — reconstruct.py:161-171, 138 — FIX — fixed in cdebb9e
+- [x] #17 find_blutter can return a bare PATH executable whose directory is then patched as a checkout — blutter_driver.py:93-112, 629, 636, 739-740 — FIX — fixed in 4a916c8
+- [x] #18 Default path does not forward identified Dart version or snapshot hash to Blutter — frontend.py:723-725, 604-605, 676 — FIX — fixed in 226dada
+- [x] #19 --infer-fields is accepted and silently ignored — cli.py:98-108 — FIX — fixed in dba92cd
+- [x] #20 Patching CMake and ElfHelper files rewrites all CRLF line endings to LF — blutter_driver.py:154-156, 195-196, 289-308 — FIX — fixed in 4a916c8
+- [x] #21 --infer-fields is accepted but never read; README documents it as working — cli.py:98-108; README.md:28, 152 — FIX — fixed in dba92cd
+- [x] #22 APK member extraction rejects '..' but not drive-prefixed names — restore.py:104-109 — FIX — fixed in e89e504
+- [x] #23 Stage list reports infer, emit and report as implemented when the CLI runs other code — __init__.py:47-48; cli.py — FIX — fixed in 85a7b38
+- [x] #24 Blutter timeout is not enforced while the build is streaming — blutter_driver.py:613, 683-691 — FIX — fixed in a711a48
+- [x] #25 Blutter is cloned unpinned, and upstream scripts and C++ are run or rewritten by exact-text match — bootstrap.py:326-327; blutter_driver.py:231-272, 341 — FIX — fixed in 4a916c8 and b302d70
+- [x] #26 Implicit Blutter discovery runs whatever blutter.py sits in the working directory — blutter_driver.py:97-112; frontend.py:564, 674 — FIX — fixed in 4a916c8
+- [x] #27 PowerShell elevation command interpolates paths and names inside unescaped single quotes — tools/launch_device.py:486-492 — FIX — fixed in 44f8f2f
+- [x] #28 PowerShell elevation command interpolates paths and names inside unescaped single quotes — tools/launch_device.py:486-492 — FIX — fixed in 44f8f2f
+- [x] #29 kill_emulators stops every emulator and qemu process on the machine — tools/launch_device.py:515-532 — FIX — fixed in 44f8f2f
+- [x] #30 kill_emulators stops every emulator and qemu process on the machine — tools/launch_device.py:515-532 — FIX — fixed in 44f8f2f
+- [ ] #31 URL-to-path mapping is implemented four times, and the unfiltered copy feeds an unused emitter — ir.py:800-808; parse_asm.py:487-493; emit.py:202-206; cli.py:51-56; reconstruct.py:352 — FIX — partly fixed in 0748a01 (emitter paths filtered, containment checked). Open: one shared helper and the cli/reconstruct import cycle
+- [ ] #32 URL-to-path mapping is implemented four times, and the unfiltered copy feeds an unused emitter — ir.py:800-808; parse_asm.py:487-493; emit.py:202-206; cli.py:51-56; reconstruct.py:352 — FIX — partly fixed in 0748a01 (same as #31)
+- [ ] #33 Key user paths and the launcher have no tests — frontend.py; tools/launch_device.py:127, 163 — FIX — partly fixed in 44f8f2f: the launcher imports without the SDK. Open: new test modules for frontend and launcher
+- [ ] #34 Key user paths and the launcher have no tests — frontend.py; tools/launch_device.py:127, 163 — FIX — partly fixed in 44f8f2f (same as #33)
+- [x] #35 Patch helpers silently rewrite CRLF files as LF — blutter_driver.py:155-196, 289-308 — FIX — fixed in 4a916c8
+- [x] #36 Patch helpers silently rewrite CRLF files as LF — blutter_driver.py:155-196, 289-308 — FIX — fixed in 4a916c8
 - [ ] #37 Long functions and repeated work in hot paths — frontend.py:528; cli.py:79; tools/launch_device.py:636; bootstrap.py:234; reconstruct.py:80-95 — SKIP — refactor and performance work, no defect described
