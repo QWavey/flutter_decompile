@@ -135,7 +135,7 @@ def _render_event(ev: pa.BodyEvent, cls: pa.ClassIR,
         if m:
             callee = m.group("callee")
             args = _v(m.group("args"))
-            edge = call_at.get(ev.addr)
+            edge = _call_edge_at(call_at, ev.addr)
             target = ""
             if edge is not None and edge.method:
                 owner = edge.cls or "::"
@@ -158,17 +158,34 @@ def _render_event(ev: pa.BodyEvent, cls: pa.ClassIR,
     return "// %s" % _v(text)
 
 
-def _calls_by_addr(m: pa.MethodIR) -> Dict[int, pa.CallEdge]:
-    """Map a call's *semantic* addr to its branch edge.
+_INSN_BYTES = 4  # AArch64 instructions are 4 bytes
 
-    Blutter emits the readable ``v0 = foo()`` line one instruction above the
-    raw ``bl #target ; annot``.  We index edges by the nearest addr at or below
-    each so the semantic Call event can pick up the resolved target name.
+
+def _calls_by_addr(m: pa.MethodIR) -> Dict[int, pa.CallEdge]:
+    """Index each branch edge by the address of its raw ``bl``.
+
+    The readable ``v0 = foo()`` line is not always at that same address; see
+    ``_call_edge_at`` for how a semantic Call event finds its edge.
     """
     out: Dict[int, pa.CallEdge] = {}
     for e in m.body.calls:
         out[e.site_addr] = e
     return out
+
+
+def _call_edge_at(call_at: Dict[int, pa.CallEdge], addr: int) -> Optional[pa.CallEdge]:
+    """The branch edge that belongs to a semantic Call event at ``addr``.
+
+    Blutter prints the readable ``vN = f()`` line one instruction away from the
+    raw ``bl`` it belongs to. Try the exact address first, then the edge one
+    instruction after the event (the bl usually follows its line), then one
+    instruction before it.
+    """
+    for a in (addr, addr + _INSN_BYTES, addr - _INSN_BYTES):
+        edge = call_at.get(a)
+        if edge is not None:
+            return edge
+    return None
 
 
 def render_method(cls: pa.ClassIR, m: pa.MethodIR, indent: str = "  ",
