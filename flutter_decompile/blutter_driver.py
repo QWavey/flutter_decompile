@@ -52,6 +52,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass, field as dc_field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -694,23 +695,38 @@ def run_blutter(libapp: str,
     # so a failure can be diagnosed instead of reported as a bare exit code.
     build_log = os.path.join(out_dir, "blutter_build.log")
     tail: "collections.deque[str]" = collections.deque(maxlen=400)
+    timed_out = threading.Event()
     try:
         with open(build_log, "w", encoding="utf-8", errors="replace") as lf:
             proc = subprocess.Popen(cmd, cwd=root, env=env, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True,
                                     encoding="utf-8", errors="replace", bufsize=1)
             assert proc.stdout is not None
-            for line in proc.stdout:
-                sys.stdout.write(line)
-                sys.stdout.flush()
-                lf.write(line)
-                tail.append(line)
-            run.returncode = proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise BlutterError("Blutter timed out after %ss" % timeout)
+            # proc.wait(timeout=...) only runs after the output loop, and that
+            # loop blocks until Blutter closes stdout, so a hung build would
+            # never time out. A watchdog kills the child from its own thread.
+            watchdog = None
+            if timeout:
+                def _expire() -> None:
+                    timed_out.set()
+                    proc.kill()
+                watchdog = threading.Timer(timeout, _expire)
+                watchdog.daemon = True
+                watchdog.start()
+            try:
+                for line in proc.stdout:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                    lf.write(line)
+                    tail.append(line)
+                run.returncode = proc.wait()
+            finally:
+                if watchdog is not None:
+                    watchdog.cancel()
     except OSError as e:
         raise BlutterError("failed to launch Blutter: %s" % e)
+    if timed_out.is_set():
+        raise BlutterError("Blutter timed out after %ss" % timeout)
 
     run.missing = validate_output(out_dir)
     if run.returncode != 0:
