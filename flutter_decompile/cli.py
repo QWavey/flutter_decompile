@@ -102,7 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     rec = ap.add_argument_group("reconstruction")
     rec.add_argument("--infer-fields", choices=("off", "safe", "aggressive"), default="safe",
-                     help="(stage 5 -- NOT IMPLEMENTED in 0.1)")
+                     help="(stage 5 -- NOT IMPLEMENTED in 0.1: accepted, but "
+                          "it has no effect on the output)")
     rec.add_argument("--no-bodies", action="store_true",
                      help="skeleton only; skip body-fact extraction (much faster)")
     rec.add_argument("--body-events", action="store_true",
@@ -111,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--emit", action="store_true",
                      help="write a full reconstructed .dart tree (bodies "
                           "included) under -o/dart/. Honours --skeleton's GLOB "
-                          "as a filter, --packages, and --infer-fields.")
+                          "as a filter and --packages.")
     rec.add_argument("--keep-asm", action="store_true",
                      help="in emitted bodies, keep the byte-for-byte machine "
                           "trace (frame setup, register copies, spills) instead "
@@ -145,6 +146,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap = build_parser()
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
     log = _log(args.verbose)
+
+    # The flag is validated above but nothing reads it yet. Say so rather than
+    # let a run with --infer-fields aggressive look like it did something.
+    if args.infer_fields != "safe":
+        print("warning: --infer-fields %s has no effect in 0.1; field-name "
+              "inference is not wired into the CLI yet" % args.infer_fields,
+              file=sys.stderr)
 
     if args.capability:
         print(CAPABILITY)

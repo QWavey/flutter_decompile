@@ -25,7 +25,7 @@ The output reads like what jadx produces for Android: the logic is all there, th
 | `async` and `sync*` markers | | |
 | enum names, ordinals, and `.name` | | |
 
-`--infer-fields` reconstructs some instance-field names from evidence. For example, a `toJson()` map literal pairs a key with the very next field load, and a `toString()` label precedes the field it describes. Every inferred name is emitted with the evidence behind it and a confidence tag. An inference is a hypothesis with a citation, not a recovered name, and the output says so on every one.
+`--infer-fields` is accepted but has no effect in 0.1: the field-name inference in `infer.py` (for example, a `toJson()` map literal pairing a key with the next field load) is not wired into the command line yet. When it is, every inferred name will carry its evidence and a confidence tag.
 
 ## Install
 
@@ -149,7 +149,7 @@ On Windows, the tool also finds MSVC through `vswhere` and loads the environment
 |---|---|
 | `--emit` | Write the reconstructed `.dart` tree (bodies included) to `-o/dart/` |
 | `--skeleton GLOB` | Signatures-only listing for libraries matching a glob or substring |
-| `--infer-fields safe\|aggressive` | Reconstruct field names, with evidence |
+| `--infer-fields safe\|aggressive` | Accepted, no effect in 0.1 (field-name inference is not wired in yet) |
 | `--include-deps` | All packages, not just the app's own |
 | `--no-bodies` | Skeleton only, much faster |
 | `--preflight` | Check the toolchain and exit |
